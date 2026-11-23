@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How DDPM Works — 노이즈를 더하는 과정을 거꾸로 배운다</title>
+<meta name="description" content="Denoising Diffusion Probabilistic Models(Ho, Jain &amp; Abbeel, NeurIPS 2020)를 식 (1)~(14)와 알고리즘 1·2 순서로 따라가는 인터랙티브 교육 자료. 순방향 과정과 노이즈 스케줄, 사후분포, 변분 하한에서 L_simple까지, 완벽한 ε*로 돌리는 1차원 역방향 과정, 브라우저에서 학습하는 2차원 확산 모델, Dirac-GAN과의 비교.">
+<style>
+:root{
+  color-scheme: light;
+  --surface-1:#fcfcfb;
+  --page:#f9f9f7;
+  --text-primary:#0b0b0b;
+  --text-secondary:#52514e;
+  --muted:#898781;
+  --grid:#e1e0d9;
+  --axis:#c3c2b7;
+  --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6;
+  --s2:#eb6834;
+  --s3:#1baf7a;
+  --s4:#8b5cf6;
+  --s8:#e34948;
+  --warn:#fab219;
+  --good:#0ca30c;
+  --wash:rgba(42,120,214,0.08);
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface-1:#1a1a19;
+  --page:#0d0d0d;
+  --text-primary:#ffffff;
+  --text-secondary:#c3c2b7;
+  --muted:#898781;
+  --grid:#2c2c2a;
+  --axis:#383835;
+  --border:rgba(255,255,255,0.10);
+  --s1:#3987e5;
+  --s2:#d95926;
+  --s3:#199e70;
+  --s4:#a78bfa;
+  --s8:#e66767;
+  --warn:#fab219;
+  --good:#0ca30c;
+  --wash:rgba(57,135,229,0.14);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
+body{
+  margin:0; background:var(--page); color:var(--text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+  font-size:16px; line-height:1.75; letter-spacing:-0.01em;
+}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px 120px}
+header.hero{padding:56px 0 28px;border-bottom:1px solid var(--border);margin-bottom:8px}
+h1{font-size:clamp(28px,5.2vw,42px);line-height:1.25;margin:0 0 12px;letter-spacing:-0.03em}
+.sub{color:var(--text-secondary);font-size:17px;margin:0}
+.kicker{font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 10px}
+h2{font-size:clamp(21px,3.4vw,27px);margin:56px 0 6px;letter-spacing:-0.02em;line-height:1.3}
+h3{font-size:18px;margin:34px 0 6px;letter-spacing:-0.015em}
+p{margin:12px 0}
+ul,ol{margin:12px 0;padding-left:22px}
+li{margin:6px 0}
+strong{font-weight:650}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.9em;background:var(--wash);padding:1px 5px;border-radius:4px}
+a{color:var(--s1)}
+.demo{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:18px;margin:24px 0}
+.demo h4{margin:0 0 2px;font-size:15px;color:var(--text-primary);font-weight:650}
+.demo .cap{color:var(--muted);font-size:13px;margin:0 0 14px;line-height:1.6}
+canvas{display:block;width:100%;border-radius:8px;background:var(--surface-1);touch-action:manipulation}
+.ctrls{display:flex;flex-wrap:wrap;gap:14px 22px;margin:14px 0 4px;align-items:flex-end}
+.ctrl{flex:1 1 210px;min-width:170px}
+.ctrl label{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:var(--text-secondary);margin-bottom:4px;gap:10px}
+.ctrl label b{font-variant-numeric:tabular-nums;color:var(--text-primary);font-weight:650;font-size:13px}
+input[type=range]{width:100%;accent-color:var(--s1);height:22px;margin:0}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+button{font:inherit;font-size:13px;font-weight:600;padding:7px 14px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary);transition:background .12s}
+button:hover{background:var(--wash)}
+button[aria-pressed=true]{background:var(--wash);border-color:var(--s1)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--text-secondary);margin:10px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:14px;height:3px;border-radius:2px;display:inline-block}
+.readout{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:12px;font-size:13px;color:var(--text-secondary)}
+.readout b{display:block;font-size:19px;color:var(--text-primary);font-weight:650;line-height:1.3;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
+.eq{background:var(--surface-1);border:1px solid var(--border);border-left:3px solid var(--s1);
+  border-radius:0 10px 10px 0;padding:14px 18px;margin:18px 0;overflow-x:auto;text-align:center}
+.eq .note{display:block;font-size:12.5px;color:var(--muted);margin:6px 0 0;line-height:1.55;text-align:left}
+.tw{overflow-x:auto;margin:18px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface-1)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--border);vertical-align:middle}
+th{font-weight:650;font-size:12.5px;color:var(--text-secondary);background:var(--page)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-variant-numeric:tabular-nums;text-align:right}
+td.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.note{border-left:3px solid var(--axis);padding:2px 0 2px 16px;margin:18px 0;color:var(--text-secondary);font-size:14.5px}
+.key{border:1px solid var(--border);border-left:3px solid var(--s2);background:var(--surface-1);
+  border-radius:0 10px 10px 0;padding:14px 18px;margin:20px 0}
+.key .lbl{font-size:11.5px;font-weight:700;letter-spacing:0.1em;color:var(--s2);display:block;margin-bottom:4px}
+.key p{margin:0}
+nav.toc{background:var(--surface-1);border:1px solid var(--border);border-radius:14px;padding:18px 22px;margin:26px 0}
+nav.toc ol{margin:6px 0 0;padding-left:20px;font-size:14.5px}
+nav.toc a{text-decoration:none;color:var(--text-primary)}
+nav.toc a:hover{color:var(--s1)}
+.q{border:1px solid var(--border);border-radius:10px;background:var(--surface-1);padding:16px 18px;margin:14px 0}
+.q h4{margin:0 0 8px;font-size:15px;color:var(--text-primary)}
+.q .opt{display:flex;gap:9px;align-items:flex-start;padding:7px 10px;border:1px solid var(--border);
+  border-radius:8px;margin:6px 0;cursor:pointer;font-size:14px;transition:border-color .12s}
+.q .opt:hover{border-color:var(--s1)}
+.q .opt input{margin-top:5px;accent-color:var(--s1)}
+.q .opt.correct{border-color:var(--good);background:rgba(12,163,12,0.08)}
+.q .opt.wrong{border-color:var(--s8);background:rgba(227,73,72,0.07)}
+.q .expl{display:none;font-size:13.5px;color:var(--text-secondary);border-left:3px solid var(--good);
+  padding:2px 0 2px 12px;margin-top:10px;line-height:1.65}
+.q .expl.bad{border-left-color:var(--s8)}
+.q .expl.show{display:block}
+.quiz-score{font-size:15px;font-weight:700;margin-top:14px}
+.tog{position:fixed;top:14px;right:14px;z-index:10;border-radius:999px;padding:7px 13px;
+  background:var(--surface-1);border:1px solid var(--border);font-size:12.5px}
+footer{margin-top:70px;padding-top:22px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+footer a{color:var(--text-secondary)}
+.refs{font-size:13px;color:var(--text-secondary);line-height:1.7}
+.easy{background:var(--surface-1);border:1px solid var(--border);border-left:3px solid var(--s3);border-radius:0 14px 14px 0;padding:18px 20px;margin:24px 0}
+.easy .lbl{font-size:11.5px;font-weight:700;letter-spacing:0.1em;color:var(--s3);display:block;margin-bottom:2px}
+.easy h3{margin:0 0 8px}
+.easy ol{padding-left:20px}
+.easy .big{font-size:17px;text-align:center;margin:10px 0;font-weight:650}
+.sw{display:grid;grid-template-columns:150px 1fr 64px;gap:8px 10px;align-items:center;font-size:13px;margin-top:12px}
+.sw .bar{position:relative;height:18px;background:var(--page);border:1px solid var(--border);border-radius:4px}
+.sw .bar i{position:absolute;top:0;bottom:0;border-radius:3px}
+.sw .bar:after{content:'';position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--axis)}
+.sw b{font-variant-numeric:tabular-nums;text-align:right}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:640px){.split{grid-template-columns:1fr}}
+.split h5{margin:4px 0 0;font-size:13px;color:var(--text-secondary);font-weight:650}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;margin:16px 0;justify-content:center}
+.flow span{border:1px solid var(--border);background:var(--surface-1);border-radius:8px;padding:5px 10px;font-weight:600}
+.flow em{color:var(--muted);font-style:normal}
+sup.fn{font-size:0.72em;line-height:0;margin-left:1px}
+sup.fn a{text-decoration:none;font-weight:700;padding:0 2px}
+.footnotes{margin-top:64px;padding-top:18px;border-top:1px solid var(--border);font-size:14.5px;color:var(--text-secondary)}
+.footnotes h2{font-size:18px;margin:0 0 10px;color:var(--text-primary)}
+.footnotes ol{padding-left:22px}
+.footnotes li:target{background:var(--wash);border-radius:8px}
+.footnotes p{margin:10px 0}
+.footnotes .tw{font-size:13.5px}
+.footnotes .back{text-decoration:none;margin-left:4px}
+.pill{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--wash);color:var(--s1);margin-left:6px;vertical-align:2px}
+
+@media (max-width:640px){.tog{position:absolute}}
+.ax-tp{color:var(--s1)}.ax-cp{color:var(--s4)}.ax-pp{color:var(--s2)}.ax-dp{color:var(--s3)}.ax-ep{color:var(--s8)}
+.tag{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:999px;border:1px solid currentColor;margin-right:4px}
+svg.fig{display:block;width:100%;height:auto;margin:6px 0}
+svg.fig text{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;fill:var(--text-primary)}
+svg.fig .m{fill:var(--muted)}
+.gpu{cursor:pointer}
+.info{font-size:13.5px;color:var(--text-secondary);margin-top:10px;line-height:1.7;min-height:3.4em}
+.info b{color:var(--text-primary)}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:9px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:none;border-radius:0;border-right:1px solid var(--border)}
+.seg button:last-child{border-right:none}
+.mini{font-size:12.5px;color:var(--muted);margin:8px 0 0}
+pre{background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.6;margin:18px 0}
+#a4tb th,#a4tb td{white-space:nowrap}
+pre code{background:none;padding:0;font-size:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--page)}
+.chip.tok{border-color:var(--s1);background:var(--wash)}
+.chip.ok{border-color:var(--good);background:rgba(12,163,12,0.08)}
+.chip.bad{border-color:var(--s8);background:rgba(227,73,72,0.07)}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;margin:8px 0}
+.row .lab{min-width:118px;color:var(--text-secondary);font-weight:600}
+.trace{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.7;background:var(--page);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:8px 0;white-space:pre-wrap}
+.trace .w{color:var(--s8)}.trace .g{color:var(--good)}.trace .m{color:var(--muted)}
+.step-box{min-height:150px}
+.stepnav{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;color:var(--muted)}
+textarea,input[type=text]{width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--text-primary)}
+.big-out{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:650;letter-spacing:0.02em;word-break:break-all;margin:6px 0}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;border:1px solid var(--border);color:var(--text-secondary);margin-left:6px;vertical-align:1px}
+</style>
+</head>
+<body>
+<button class="tog" id="themeBtn" type="button">◐ 다크</button>
+<div class="wrap">
+<header class="hero">
+  <p class="kicker">이미지 생성 · Diffusion</p>
+  <h1>How DDPM Works — 노이즈를 더하는 과정을 거꾸로 배운다</h1>
+  <p class="sub">이미지에 가우시안 노이즈를 아주 조금씩 1000번 더하면 순수한 노이즈만 남습니다. 이 과정은 학습할 것이 없는 고정된 절차입니다. Ho, Jain &amp; Abbeel의 「Denoising Diffusion Probabilistic Models」(NeurIPS 2020)는 이 과정을 <strong>한 걸음씩 되돌리는 신경망</strong>을 학습시켜, 판별자 없이 회귀 손실 하나로 CIFAR10 FID 3.17을 얻었습니다. 이 페이지는 논문의 식 (1)~(14)와 알고리즘 1·2를 순서대로 따라가며, 순방향 과정·사후분포·손실 가중치를 직접 계산하고 작은 확산 모델을 브라우저에서 학습시켜 봅니다.</p>
+</header>
+
+<div class="key">
+  <span class="lbl">이 자료의 축</span>
+  <p><strong>생성이라는 어려운 문제 하나를, "방금 섞인 노이즈가 무엇이었는지 맞히기"라는 쉬운 회귀 문제 T개로 쪼갠다.</strong> <span class="ax-tp"><strong>순방향 과정</strong></span>은 데이터를 노이즈로 바꾸는 고정된 가우시안 사슬이고, <span class="ax-pp"><strong>역방향 과정</strong></span>은 같은 모양의 사슬을 반대 방향으로 학습한 것이다. 순방향이 가우시안이라 정답(사후분포)이 닫힌 꼴로 나오고, 그래서 변분 하한 전체가 <strong>‖ε − ε<sub>θ</sub>(x<sub>t</sub>, t)‖²</strong> 한 줄로 줄어든다.</p>
+</div>
+
+<nav class="toc">
+  <strong>학습 경로</strong>
+  <ol>
+    <li><a href="#s1">무엇이 달라졌나: 게임 대신 회귀</a></li>
+    <li><a href="#s2">순방향 과정: 조금씩 노이즈를 더한다</a></li>
+    <li><a href="#s3">한 번에 건너뛰기와 노이즈 스케줄</a></li>
+    <li><a href="#s4">역방향 과정: 무엇을 맞혀야 하는가</a></li>
+    <li><a href="#s5">손실: 변분 하한에서 ‖ε − ε<sub>θ</sub>‖²까지</a></li>
+    <li><a href="#s6">정답을 아는 1차원에서 역방향 돌려 보기</a></li>
+    <li><a href="#s7">브라우저에서 직접 학습시키기</a></li>
+    <li><a href="#s8">신경망: U-Net과 시간 임베딩</a></li>
+    <li><a href="#s9">논문의 결과</a></li>
+    <li><a href="#s10">한계와 그다음</a></li>
+    <li><a href="#s11">정리</a></li>
+    <li><a href="#s12">확인 퀴즈</a></li>
+  </ol>
+</nav>
+
+<p class="note">식 번호와 표 번호는 논문(arXiv:2006.11239v2)을 따릅니다. 데모는 원리를 보이는 장난감 모형입니다. 6절은 정답을 식으로 아는 1차원 분포, 7절은 2차원 점 데이터에 작은 MLP를 학습시킨 것이며 논문의 U-Net을 재현한 것이 아닙니다. 정규분포가 낯설다면 <a href="https://dev-jonghoonpark.github.io/how-normal-distribution-works/">How Normal Distribution Works</a>를, 변분 하한(ELBO)이 낯설다면 <a href="https://dev-jonghoonpark.github.io/how-vlae-works/">How VLAE Works</a> 0~2절을 먼저 보면 좋습니다.</p>
+
+<!-- ───────── 1 ───────── -->
+<h2 id="s1">1. 무엇이 달라졌나: 게임 대신 회귀</h2>
+<p>2020년에 이미지 품질이 가장 좋은 생성 모델은 GAN이었습니다. GAN은 생성자와 판별자가 서로 반대 방향으로 같은 목적 함수를 밀고 당깁니다. 손실 하나를 줄이는 것이 아니라 <strong>두 신경망이 균형점을 찾아가는 게임</strong>이어서, 학습이 진동하거나 생성자가 데이터의 일부만 만들어 내는 모드 붕괴가 일어나기 쉽습니다. 가능도 기반 모델(VAE, 자기회귀, 흐름)은 손실 하나를 줄이므로 학습은 안정적이지만 당시 샘플 품질이 GAN에 미치지 못했습니다.</p>
+<p>DDPM은 가능도 기반 쪽입니다. 변분 하한이라는 손실 하나를 최소화하고, 그 손실은 매 스텝 <strong>정답이 고정된 평균 제곱 오차</strong>입니다. 그런데도 CIFAR10 무조건부 생성에서 당시 대부분의 GAN보다 좋은 FID를 냈습니다. 논문 초록의 표현은 "high quality image synthesis results using diffusion probabilistic models"입니다.</p>
+<p>두 학습 방식의 차이를 가장 단순한 예로 봅니다. 왼쪽은 Mescheder 외(2018)의 Dirac-GAN입니다. 진짜 데이터는 0 한 점, 생성자는 θ 한 점을 내놓고, 판별자는 D(x) = ψx입니다. 균형점은 (θ, ψ) = (0, 0)입니다. 오른쪽은 같은 θ를 회귀 손실 ½θ²로 학습한 것입니다.</p>
+
+<div class="demo">
+  <h4>데모 1 · 미니맥스 게임 vs 고정된 목표의 회귀</h4>
+  <p class="cap">왼쪽: (θ, ψ) 평면에서 GAN 경사 하강의 궤적. 오른쪽: 스텝에 따른 |θ| (0이 정답, 로그 축). 학습률을 바꿔 보세요.</p>
+  <div class="split">
+    <div><h5>GAN: (θ, ψ) 궤적</h5><canvas id="cv5a" height="260"></canvas></div>
+    <div><h5>정답까지의 거리 |θ|</h5><canvas id="cv5b" height="260"></canvas></div>
+  </div>
+  <div class="ctrls">
+    <div class="ctrl"><label>학습률 h <b id="d5hV">0.20</b></label><input type="range" id="d5h" min="0.02" max="0.6" step="0.02" value="0.2"></div>
+    <div class="ctrl"><div class="seg" id="d5seg"><button type="button" data-v="sim" aria-pressed="true">동시 갱신</button><button type="button" data-v="alt" aria-pressed="false">교대 갱신</button></div></div>
+  </div>
+  <div class="legend"><span><i style="background:var(--s2)"></i>GAN (생성자 θ)</span><span><i style="background:var(--s1)"></i>회귀 손실 ½θ²</span></div>
+  <div class="readout">
+    <div>300스텝 후 GAN |θ|<b id="d5g">—</b></div>
+    <div>300스텝 후 회귀 |θ|<b id="d5r">—</b></div>
+  </div>
+</div>
+<p>동시 갱신에서 GAN의 궤적은 균형점 주위를 돌며 <strong>밖으로 나선을 그리고</strong>, 교대 갱신에서는 멀어지지는 않지만 원을 돌 뿐 들어오지 않습니다. 회귀 쪽은 매 스텝 (1 − h)배로 줄어듭니다. 실제 GAN은 기울기 벌점이나 스펙트럼 정규화 같은 기법으로 이 회전을 눌러 학습시키고, 그렇게 해서 좋은 결과를 냅니다. 요점은 GAN이 학습되지 않는다는 것이 아니라 <strong>안정성을 별도의 장치로 확보해야 한다</strong>는 것이고, 확산 모델은 목적 함수의 모양 때문에 그 장치가 필요 없다는 것입니다.</p>
+<div class="tw"><table>
+<tr><th></th><th>GAN</th><th>DDPM</th></tr>
+<tr><td>학습 목표</td><td>min<sub>G</sub> max<sub>D</sub> — 두 신경망의 게임</td><td>min<sub>θ</sub> — 변분 하한 하나</td></tr>
+<tr><td>정답 신호</td><td>판별자가 주고, 판별자도 계속 바뀜</td><td>방금 넣은 노이즈 ε — 고정</td></tr>
+<tr><td>가능도</td><td>계산할 수 없음</td><td>상한을 계산할 수 있음 (≤ 3.75 bits/dim)</td></tr>
+<tr><td>샘플 한 장</td><td>신경망 1번 통과</td><td>신경망 T = 1000번 통과</td></tr>
+</table></div>
+<p>마지막 줄이 대가입니다. 안정적인 학습을 얻은 대신 생성이 느립니다. 10절에서 다시 다룹니다.</p>
+
+<!-- ───────── 2 ───────── -->
+<h2 id="s2">2. 순방향 과정: 조금씩 노이즈를 더한다</h2>
+<p>확산 모델에는 사슬이 두 개 있습니다. 데이터 x<sub>0</sub>에서 노이즈 x<sub>T</sub>로 가는 <span class="ax-tp"><strong>순방향 과정 q</strong></span>와, 노이즈에서 데이터로 돌아오는 <span class="ax-pp"><strong>역방향 과정 p<sub>θ</sub></strong></span>입니다. 잠재 변수 x<sub>1</sub>, …, x<sub>T</sub>는 모두 데이터와 같은 크기입니다.</p>
+<div class="flow"><span>x<sub>0</sub> 데이터</span><em>→ q →</em><span>x<sub>1</sub></span><em>→ … →</em><span>x<sub>t−1</sub></span><em>⇄</em><span>x<sub>t</sub></span><em>→ … →</em><span>x<sub>T</sub> ≈ 𝒩(0, I)</span></div>
+<p>순방향 과정은 학습하지 않습니다. 분산 스케줄 β<sub>1</sub>, …, β<sub>T</sub>에 따라 가우시안 노이즈를 더하는 고정된 마르코프 사슬입니다.</p>
+<div class="eq">
+q(x<sub>t</sub> | x<sub>t−1</sub>) = 𝒩( x<sub>t</sub> ; √(1 − β<sub>t</sub>) · x<sub>t−1</sub>, β<sub>t</sub> I ) &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (2)</span>
+<span class="note">한 걸음: x<sub>t</sub> = √(1 − β<sub>t</sub>) · x<sub>t−1</sub> + √β<sub>t</sub> · ε,&nbsp; ε ~ 𝒩(0, I). 논문은 T = 1000, β<sub>1</sub> = 10⁻⁴에서 β<sub>T</sub> = 0.02까지 선형으로 올린다.</span>
+</div>
+<p>신호에 √(1 − β<sub>t</sub>)를 곱하는 이유는 분산을 유지하기 위해서입니다. x<sub>t−1</sub>의 분산이 1이면 x<sub>t</sub>의 분산은 (1 − β<sub>t</sub>) + β<sub>t</sub> = 1입니다. 노이즈를 더하기만 하면 값이 계속 커지지만, 이렇게 하면 신호가 줄어든 만큼만 노이즈가 채워져 끝에서 정확히 표준 정규분포에 도착합니다. β<sub>t</sub>는 0.0001~0.02로 매우 작아서 한 걸음은 눈에 보이지 않을 만큼의 변화입니다.</p>
+
+<div class="demo">
+  <h4>데모 2 · 이미지 한 장의 순방향 과정</h4>
+  <p class="cap">64×64 그림에 논문의 스케줄(T = 1000)을 적용합니다. x<sub>t</sub>는 줄어든 신호와 커진 노이즈의 합입니다. 회색은 값 0입니다.</p>
+  <canvas id="cv1" height="230"></canvas>
+  <div class="ctrls">
+    <div class="ctrl"><label>시간 t <b id="d1tV">0</b></label><input type="range" id="d1t" min="0" max="1000" value="250"></div>
+  </div>
+  <div class="btns"><button id="d1play" type="button">▶ 0 → 1000 재생</button><button id="d1re" type="button">ε 다시 뽑기</button></div>
+  <div class="readout">
+    <div>신호 계수 √ᾱ<sub>t</sub><b id="d1a">—</b></div>
+    <div>노이즈 계수 √(1 − ᾱ<sub>t</sub>)<b id="d1n">—</b></div>
+    <div>신호 대 잡음비 ᾱ<sub>t</sub> / (1 − ᾱ<sub>t</sub>)<b id="d1s">—</b></div>
+  </div>
+</div>
+<p>t = 100쯤에서는 그림이 거의 그대로이고, t = 300을 넘으면 윤곽만 남고, t = 600 근처에서 큰 색 덩어리마저 사라집니다. <strong>세부(높은 주파수)가 먼저 지워지고 전체 구도(낮은 주파수)가 나중에 지워집니다.</strong> 역방향은 이 순서를 뒤집으므로 구도가 먼저 정해지고 세부가 나중에 채워집니다. 논문 그림 6이 이 현상을 보여 줍니다.</p>
+
+<!-- ───────── 3 ───────── -->
+<h2 id="s3">3. 한 번에 건너뛰기와 노이즈 스케줄</h2>
+<p>데모 2는 t를 옮길 때마다 한 걸음씩 t번 노이즈를 더하지 않았습니다. 가우시안을 여러 번 더한 것은 가우시안 한 번과 같기 때문입니다. α<sub>t</sub> = 1 − β<sub>t</sub>, ᾱ<sub>t</sub> = α<sub>1</sub>α<sub>2</sub>⋯α<sub>t</sub>라고 쓰면,</p>
+<div class="eq">
+q(x<sub>t</sub> | x<sub>0</sub>) = 𝒩( x<sub>t</sub> ; √ᾱ<sub>t</sub> · x<sub>0</sub>, (1 − ᾱ<sub>t</sub>) I ) &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (4)</span>
+<span class="note">즉 x<sub>t</sub> = √ᾱ<sub>t</sub> · x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>) · ε. 두 걸음만 확인하면: x<sub>2</sub> = √α<sub>2</sub>(√α<sub>1</sub>x<sub>0</sub> + √(1−α<sub>1</sub>)ε<sub>1</sub>) + √(1−α<sub>2</sub>)ε<sub>2</sub>. 노이즈 두 항의 분산 합은 α<sub>2</sub>(1−α<sub>1</sub>) + (1−α<sub>2</sub>) = 1 − α<sub>1</sub>α<sub>2</sub>.</span>
+</div>
+<p>이 식이 학습을 가능하게 합니다. 학습할 때 사슬을 처음부터 돌릴 필요 없이 <strong>아무 t나 골라 x<sub>t</sub>를 한 번에 만들 수 있기</strong> 때문입니다. ᾱ<sub>t</sub>는 t 시점에 원본 신호가 얼마나 남았는지를 말해 주는 값 하나이고, 이후의 모든 식이 이 값으로 쓰입니다.</p>
+
+<div class="demo">
+  <h4>데모 3 · 스케줄 계산기</h4>
+  <p class="cap">β<sub>1</sub> = 10⁻⁴에서 β<sub>T</sub>까지 선형 스케줄. 보기를 바꾸면 같은 스케줄에서 나오는 네 가지 양을 볼 수 있습니다. 뒤의 두 보기는 4·5절에서 씁니다.</p>
+  <div class="seg" id="d2seg"><button type="button" data-v="a" aria-pressed="true">신호·노이즈 계수</button><button type="button" data-v="b" aria-pressed="false">사후 평균 계수</button><button type="button" data-v="c" aria-pressed="false">분산 β̃<sub>t</sub> / β<sub>t</sub></button><button type="button" data-v="d" aria-pressed="false">손실 가중치</button></div>
+  <canvas id="cv2" height="280" style="margin-top:12px"></canvas>
+  <div class="legend" id="d2leg"></div>
+  <div class="ctrls">
+    <div class="ctrl"><label><span>β<sub>T</sub></span> <b id="d2bV">0.020</b></label><input type="range" id="d2b" min="0.002" max="0.05" step="0.001" value="0.02"></div>
+    <div class="ctrl"><label>스텝 수 T <b id="d2TV">1000</b></label><input type="range" id="d2T" min="50" max="2000" step="50" value="1000"></div>
+    <div class="ctrl"><label>읽을 위치 t <b id="d2tV">500</b></label><input type="range" id="d2t" min="1" max="1000" value="500"></div>
+  </div>
+  <div class="readout">
+    <div>ᾱ<sub>t</sub><b id="d2r1">—</b></div>
+    <div id="d2r2l">√ᾱ<sub>t</sub> , √(1 − ᾱ<sub>t</sub>)<b id="d2r2">—</b></div>
+    <div>끝에 남은 신호 ᾱ<sub>T</sub><b id="d2r3">—</b></div>
+    <div>L<sub>T</sub> (bits/dim)<b id="d2r4">—</b></div>
+  </div>
+  <p class="mini">L<sub>T</sub> = KL( q(x<sub>T</sub>|x<sub>0</sub>) ‖ 𝒩(0, I) ) 는 x<sub>0</sub>² 평균을 0.25로 가정해 계산했습니다.</p>
+</div>
+<p>기본값에서 ᾱ<sub>T</sub> ≈ 4 × 10⁻⁵, 즉 끝에는 원본 신호가 진폭 기준 0.6%만 남습니다. 이때 L<sub>T</sub>는 약 10⁻⁵ bits/dim으로, 논문 4절이 "L<sub>T</sub> ≈ 10⁻⁵ bits per dimension"이라고 적은 값과 맞습니다. x<sub>T</sub>가 사실상 𝒩(0, I)이므로 생성할 때 표준 정규분포에서 시작해도 됩니다. β<sub>T</sub>나 T를 줄여 보면 ᾱ<sub>T</sub>가 커져 이 가정이 깨지는 것을 볼 수 있습니다.</p>
+<p>스케줄을 정할 때 지켜야 할 것은 두 가지입니다. <strong>β<sub>t</sub>가 작을 것</strong>(다음 절에서 이유가 나옵니다)과 <strong>ᾱ<sub>T</sub>가 0에 가까울 것</strong>. 걸음을 작게 하면서 끝까지 가려면 걸음 수가 많아야 하고, 그래서 T = 1000입니다.</p>
+
+<!-- ───────── 4 ───────── -->
+<h2 id="s4">4. 역방향 과정: 무엇을 맞혀야 하는가</h2>
+<p>생성은 x<sub>T</sub> ~ 𝒩(0, I)에서 시작해 q(x<sub>t−1</sub> | x<sub>t</sub>)를 따라 한 걸음씩 돌아오면 됩니다. 문제는 이 분포를 모른다는 것입니다. 이것을 계산하려면 모든 데이터에 대한 정보가 필요합니다. 그래서 신경망으로 근사합니다.</p>
+<div class="eq">
+p<sub>θ</sub>(x<sub>t−1</sub> | x<sub>t</sub>) = 𝒩( x<sub>t−1</sub> ; μ<sub>θ</sub>(x<sub>t</sub>, t), Σ<sub>θ</sub>(x<sub>t</sub>, t) ) &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (1)</span>
+</div>
+<p>역방향을 가우시안으로 두어도 되는 근거는 β<sub>t</sub>가 작다는 데 있습니다. 순방향 한 걸음이 충분히 작은 가우시안이면 그 역방향도 가우시안에 가깝다는 것이 알려져 있습니다(Sohl-Dickstein 외 2015가 인용한 Feller 1949). 걸음이 크면 x<sub>t</sub>에서 돌아갈 수 있는 곳이 여러 봉우리로 갈라져 가우시안 하나로 표현할 수 없습니다. 6절에서 T를 줄여 이 현상을 확인합니다.</p>
+<h3>x<sub>0</sub>를 알면 정답이 닫힌 꼴로 나온다</h3>
+<p>q(x<sub>t−1</sub> | x<sub>t</sub>)는 모르지만, <strong>원본 x<sub>0</sub>를 조건으로 주면</strong> 베이즈 정리로 정확히 계산됩니다. 가우시안 두 개의 곱이기 때문입니다.</p>
+<div class="eq">
+q(x<sub>t−1</sub> | x<sub>t</sub>, x<sub>0</sub>) = 𝒩( x<sub>t−1</sub> ; μ̃<sub>t</sub>(x<sub>t</sub>, x<sub>0</sub>), β̃<sub>t</sub> I ) &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (6)</span><br><br>
+μ̃<sub>t</sub> = <span class="ax-dp">[ √ᾱ<sub>t−1</sub> β<sub>t</sub> / (1 − ᾱ<sub>t</sub>) ]</span> · x<sub>0</sub> + <span class="ax-cp">[ √α<sub>t</sub> (1 − ᾱ<sub>t−1</sub>) / (1 − ᾱ<sub>t</sub>) ]</span> · x<sub>t</sub> ,&nbsp;&nbsp; β̃<sub>t</sub> = (1 − ᾱ<sub>t−1</sub>) / (1 − ᾱ<sub>t</sub>) · β<sub>t</sub> &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (7)</span>
+<span class="note">한 걸음 전의 위치는 "원본 x<sub>0</sub>"와 "지금 위치 x<sub>t</sub>"의 가중 평균 근처다.</span>
+</div>
+<p>데모 3에서 <strong>사후 평균 계수</strong>를 눌러 보세요. t가 크면 x<sub>t</sub>의 계수가 거의 1이고 x<sub>0</sub>의 계수는 0에 가깝습니다. 노이즈가 많은 구간에서는 한 걸음에 원본 쪽으로 아주 조금만 움직입니다. t가 1에 가까워지면 x<sub>0</sub>의 계수가 급히 커져 마지막 몇 걸음에 원본으로 수렴합니다. <strong>분산 β̃<sub>t</sub> / β<sub>t</sub></strong> 보기에서는 사후분포의 분산이 처음 몇 걸음을 빼면 β<sub>t</sub>와 거의 같다는 것을 볼 수 있습니다.</p>
+<p>이제 학습 목표가 분명해집니다. 신경망 p<sub>θ</sub>(x<sub>t−1</sub> | x<sub>t</sub>)는 x<sub>0</sub>를 보지 못한 채로 <strong>x<sub>0</sub>를 본 정답 q(x<sub>t−1</sub> | x<sub>t</sub>, x<sub>0</sub>)를 흉내 내야</strong> 합니다. 두 분포가 모두 가우시안이므로 그 차이(KL 발산)도 닫힌 꼴로 계산됩니다.</p>
+
+<!-- ───────── 5 ───────── -->
+<h2 id="s5">5. 손실: 변분 하한에서 ‖ε − ε<sub>θ</sub>‖²까지</h2>
+<p>확산 모델은 잠재 변수가 x<sub>1:T</sub>인 잠재 변수 모델이고, VAE와 같은 방식으로 음의 로그 가능도의 변분 상한을 최소화합니다. 차이는 인코더에 해당하는 q가 고정되어 있다는 것입니다. 이 상한을 정리하면 세 종류의 항으로 나뉩니다.</p>
+<div class="eq">
+L = 𝔼<sub>q</sub>[ <span class="ax-ep">KL( q(x<sub>T</sub>|x<sub>0</sub>) ‖ p(x<sub>T</sub>) )</span> + Σ<sub>t&gt;1</sub> <span class="ax-tp">KL( q(x<sub>t−1</sub>|x<sub>t</sub>,x<sub>0</sub>) ‖ p<sub>θ</sub>(x<sub>t−1</sub>|x<sub>t</sub>) )</span> <span class="ax-dp">− log p<sub>θ</sub>(x<sub>0</sub>|x<sub>1</sub>)</span> ] &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (5)</span>
+<span class="note"><span class="ax-ep">L<sub>T</sub></span>: 끝이 표준 정규분포에 얼마나 가까운가 — β가 고정이라 학습할 것이 없는 상수(데모 3의 10⁻⁵). <span class="ax-tp">L<sub>t−1</sub></span>: 각 걸음에서 정답 사후분포와의 차이. <span class="ax-dp">L<sub>0</sub></span>: 마지막 걸음의 복원 오차.</span>
+</div>
+<p>논문은 여기서 세 가지 선택을 합니다.</p>
+<ol>
+<li><strong>분산은 학습하지 않는다.</strong> Σ<sub>θ</sub> = σ<sub>t</sub>² I로 고정하고 σ<sub>t</sub>² = β<sub>t</sub> 또는 β̃<sub>t</sub>를 씁니다. 두 값은 각각 x<sub>0</sub> ~ 𝒩(0, I)일 때와 x<sub>0</sub>가 한 점일 때의 최적값이고, 실험 결과는 비슷했습니다. 그러면 L<sub>t−1</sub>은 평균의 차이만 남습니다:
+<div class="eq" style="margin:10px 0">L<sub>t−1</sub> = 𝔼<sub>q</sub>[ 1/(2σ<sub>t</sub>²) · ‖ μ̃<sub>t</sub>(x<sub>t</sub>, x<sub>0</sub>) − μ<sub>θ</sub>(x<sub>t</sub>, t) ‖² ] + C &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (8)</span></div></li>
+<li><strong>평균 대신 노이즈를 예측한다.</strong> x<sub>t</sub> = √ᾱ<sub>t</sub>x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>)ε를 x<sub>0</sub>에 대해 풀어 식 (7)에 넣으면 μ̃<sub>t</sub> = (1/√α<sub>t</sub>) · ( x<sub>t</sub> − β<sub>t</sub>/√(1 − ᾱ<sub>t</sub>) · ε )입니다. x<sub>t</sub>는 신경망이 입력으로 받으므로 모르는 것은 ε뿐입니다. 그래서 신경망이 ε를 예측하게 합니다:
+<div class="eq" style="margin:10px 0">μ<sub>θ</sub>(x<sub>t</sub>, t) = (1/√α<sub>t</sub>) · ( x<sub>t</sub> − β<sub>t</sub> / √(1 − ᾱ<sub>t</sub>) · ε<sub>θ</sub>(x<sub>t</sub>, t) ) &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (11)</span></div>
+이것을 식 (8)에 넣으면 손실은 노이즈 예측 오차에 t마다 다른 가중치가 붙은 꼴이 됩니다:
+<div class="eq" style="margin:10px 0">L<sub>t−1</sub> − C = 𝔼<sub>x₀, ε</sub>[ <span class="ax-pp">β<sub>t</sub>² / ( 2σ<sub>t</sub>² α<sub>t</sub> (1 − ᾱ<sub>t</sub>) )</span> · ‖ ε − ε<sub>θ</sub>( √ᾱ<sub>t</sub>x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>)ε, t ) ‖² ] &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (12)</span></div></li>
+<li><strong>가중치를 버린다.</strong> 앞의 계수를 지우고 모든 t를 같은 무게로 더합니다:
+<div class="eq" style="margin:10px 0">L<sub>simple</sub>(θ) = 𝔼<sub>t, x₀, ε</sub>[ ‖ ε − ε<sub>θ</sub>( √ᾱ<sub>t</sub>x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>)ε, t ) ‖² ] &nbsp;&nbsp;&nbsp; <span style="color:var(--muted)">식 (14)</span></div></li>
+</ol>
+<p>데모 3에서 <strong>손실 가중치</strong>를 눌러 보세요. 식 (12)의 가중치(σ<sub>t</sub>² = β<sub>t</sub>)는 t = 1에서 약 0.5이고 t = 1000에서 약 0.01로, 50배쯤 차이가 납니다. 변분 하한은 노이즈가 거의 없는 작은 t에 큰 무게를 줍니다. L<sub>simple</sub>은 모두 1이므로 상대적으로 <strong>작은 t의 비중을 낮추고 큰 t의 비중을 높인</strong> 것입니다. 논문 3.4절의 설명은, 작은 t는 노이즈를 아주 조금 지우는 쉬운 과제이므로 비중을 줄여 신경망이 노이즈가 많은 어려운 구간에 집중하게 하는 것이 샘플 품질에 이롭다는 것입니다. 9절의 절제 실험에서 이 선택 하나가 FID를 13.51에서 3.17로 바꿉니다.</p>
+<div class="key"><span class="lbl">학습 전체가 다섯 줄 — 알고리즘 1</span>
+<p>① 데이터에서 x<sub>0</sub>를 뽑는다. ② t를 1…T에서 고르게 뽑는다. ③ ε ~ 𝒩(0, I)를 뽑는다. ④ x<sub>t</sub> = √ᾱ<sub>t</sub>x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>)ε를 만든다. ⑤ ‖ε − ε<sub>θ</sub>(x<sub>t</sub>, t)‖²의 기울기로 θ를 갱신한다. 정답 ε는 방금 직접 만든 값이라 다른 신경망에 기대지 않는다.</p></div>
+
+<!-- ───────── 6 ───────── -->
+<h2 id="s6">6. 정답을 아는 1차원에서 역방향 돌려 보기</h2>
+<p>학습이 끝나면 생성은 알고리즘 2입니다. x<sub>T</sub> ~ 𝒩(0, I)에서 시작해 t = T, …, 1 순서로 다음을 반복합니다.</p>
+<div class="eq">
+x<sub>t−1</sub> = (1/√α<sub>t</sub>) · ( x<sub>t</sub> − β<sub>t</sub> / √(1 − ᾱ<sub>t</sub>) · ε<sub>θ</sub>(x<sub>t</sub>, t) ) + σ<sub>t</sub> z ,&nbsp;&nbsp; z ~ 𝒩(0, I) &nbsp;&nbsp; (t = 1이면 z = 0)
+<span class="note">예측한 노이즈를 조금 빼고(평균 μ<sub>θ</sub>), 새 노이즈를 조금 넣는다(σ<sub>t</sub>z).</span>
+</div>
+<p>신경망을 학습시키기 전에, 이 절차가 정말 데이터 분포를 만들어 내는지를 <strong>완벽한 ε<sub>θ</sub></strong>로 확인합니다. 데이터가 1차원 가우시안 혼합이면 q(x<sub>t</sub>)도 가우시안 혼합이라 모든 t에서 밀도를 식으로 쓸 수 있고, 손실 (14)를 최소화하는 최적 예측도 식으로 나옵니다.</p>
+<div class="eq">
+ε*(x<sub>t</sub>, t) = 𝔼[ ε | x<sub>t</sub> ] = − √(1 − ᾱ<sub>t</sub>) · ∇<sub>x</sub> log q(x<sub>t</sub>)
+<span class="note">최적의 노이즈 예측은 로그 밀도의 기울기(score)에 상수를 곱한 것이다. 노이즈를 뺀다는 것은 밀도가 높은 쪽으로 한 걸음 올라간다는 뜻이고, 이것이 논문 3.2절이 말하는 denoising score matching·Langevin dynamics와의 연결이다.</span>
+</div>
+
+<div class="demo">
+  <h4>데모 4 · 완벽한 ε*로 돌리는 알고리즘 2</h4>
+  <p class="cap">데이터는 봉우리 세 개(비율 30% · 45% · 25%). 배경은 q(x<sub>t</sub>)의 밀도이고, 왼쪽 끝(t = T)의 표준 정규분포에서 출발한 점들이 오른쪽 끝(t = 0)으로 갑니다. 오른쪽 막대는 샘플 1500개의 분포, 선은 데이터 분포입니다.</p>
+  <canvas id="cv3" height="330"></canvas>
+  <div class="ctrls">
+    <div class="ctrl"><label>스텝 수 T <b id="d3TV">1000</b></label><input type="range" id="d3T" min="0" max="5" step="1" value="5"></div>
+    <div class="ctrl"><div class="seg" id="d3seg"><button type="button" data-v="b" aria-pressed="true">σ<sub>t</sub>² = β<sub>t</sub></button><button type="button" data-v="bt" aria-pressed="false">σ<sub>t</sub>² = β̃<sub>t</sub></button><button type="button" data-v="0" aria-pressed="false">σ<sub>t</sub> = 0</button></div></div>
+  </div>
+  <div class="btns"><button id="d3go" type="button">▶ 다시 샘플링</button></div>
+  <div class="readout">
+    <div>봉우리별 비율 (샘플)<b id="d3p">—</b></div>
+    <div>데이터<b>30 · 45 · 25%</b></div>
+    <div>가운데 봉우리 폭 (샘플 / 데이터)<b id="d3w">—</b></div>
+  </div>
+</div>
+<p>T = 1000에서는 샘플의 봉우리 비율과 폭이 데이터와 거의 맞습니다(샘플 1500개라 1~2%p는 흔들립니다). 궤적을 보면 왼쪽 절반에서는 점들이 거의 무작위로 움직이다가 밀도가 갈라지는 구간에서 어느 봉우리로 갈지가 정해지고, 끝에서 봉우리 안으로 좁혀집니다. 세 가지를 실험해 보세요.</p>
+<ul>
+<li><strong>T를 줄이면</strong> 한 걸음의 β<sub>t</sub>가 커집니다(같은 ᾱ<sub>T</sub>에 도달하도록 스케줄을 키웠습니다). σ<sub>t</sub>² = β<sub>t</sub>로 T = 25까지 내리면 ε*가 완벽한데도 가운데 봉우리의 폭이 0.08이 아니라 0.14쯤으로 퍼집니다. 걸음이 크면 역방향 한 걸음이 가우시안에서 멀어지기 때문이며, 4절에서 말한 "β가 작아야 한다"는 조건이 여기서 보입니다.</li>
+<li><strong>β<sub>t</sub>와 β̃<sub>t</sub></strong>는 T = 1000에서 결과가 거의 같습니다. 논문이 "both had similar results"라고 한 것과 같습니다. T를 줄이면 갈라집니다. β<sub>t</sub>는 폭을 넓게, β̃<sub>t</sub>는 좁게 만드는데, 이 데이터처럼 봉우리가 뾰족하면 β̃<sub>t</sub> 쪽이 덜 어긋납니다. β̃<sub>t</sub>가 "x<sub>0</sub>가 한 점일 때의 최적값"이라는 설명과 맞습니다.</li>
+<li><strong>σ<sub>t</sub> = 0</strong>, 즉 새 노이즈를 넣지 않고 평균만 따라가면 모든 점이 가장 큰 봉우리 하나의 중심으로 몰려 비율이 0 · 100 · 0%가 되고 폭도 사라집니다. 알고리즘 2의 σ<sub>t</sub>z는 장식이 아니라 분포를 유지하는 항입니다. (노이즈 없이 올바른 분포를 얻으려면 갱신식 자체를 바꿔야 하고, 그것이 DDIM입니다.)</li>
+</ul>
+
+<!-- ───────── 7 ───────── -->
+<h2 id="s7">7. 브라우저에서 직접 학습시키기</h2>
+<p>이제 ε*를 모른다고 하고 신경망으로 배웁니다. 데이터는 2차원 점들이고, ε<sub>θ</sub>는 x<sub>t</sub>(좌표와 그 사인 특징)와 t의 사인 임베딩을 입력으로 받아 2차원 노이즈를 내는 은닉 64 × 3층 MLP입니다(파라미터 약 1만 1천 개). T = 100, β는 10⁻³에서 0.2까지 선형입니다. 학습은 알고리즘 1 그대로이고, 논문처럼 가중치의 지수 이동 평균(EMA)으로 샘플링합니다.</p>
+
+<div class="demo">
+  <h4>데모 5 · 알고리즘 1로 학습하고 알고리즘 2로 샘플링</h4>
+  <p class="cap">왼쪽: L<sub>simple</sub>(로그 축). 오른쪽: 회색은 데이터, 주황은 현재 가중치로 t = T에서 0까지 되돌리는 중인 점 600개입니다. 학습하는 동안 샘플링이 계속 반복됩니다.</p>
+  <div class="seg" id="d4seg"><button type="button" data-v="ring" aria-pressed="true">가우시안 8개</button><button type="button" data-v="moons" aria-pressed="false">두 초승달</button><button type="button" data-v="spiral" aria-pressed="false">나선</button></div>
+  <div class="split" style="margin-top:12px">
+    <div><h5>학습 손실 ‖ε − ε<sub>θ</sub>‖²</h5><canvas id="cv4a" height="300"></canvas></div>
+    <div><h5 id="d4cap">샘플 (학습 전)</h5><canvas id="cv4b" height="300"></canvas></div>
+  </div>
+  <div class="btns"><button id="d4run" type="button">▶ 학습 시작</button><button id="d4samp" type="button">샘플링 한 번</button><button id="d4reset" type="button">가중치 초기화</button></div>
+  <div class="readout">
+    <div>학습 스텝<b id="d4step">0</b></div>
+    <div>손실 (최근 평균)<b id="d4loss">—</b></div>
+    <div>샘플링 위치 t<b id="d4t">—</b></div>
+  </div>
+</div>
+<p>학습 전에는 ε<sub>θ</sub> ≈ 0이라 점들이 노이즈인 채로 남습니다. 1000스텝쯤이면 대략의 위치가 잡히고, 4000스텝쯤이면 모양이 뚜렷해집니다(수십 초). 두 가지를 눈여겨보세요.</p>
+<ul>
+<li><strong>손실이 0으로 가지 않습니다.</strong> 처음 1.0 근처(아무것도 예측하지 않을 때 ε의 분산)에서 내려와 0.2 부근에서 멈춥니다. t가 크면 x<sub>t</sub>에 원본 정보가 거의 없어 섞인 노이즈를 정확히 알아낼 수 없기 때문입니다. 최선은 조건부 평균 𝔼[ε | x<sub>t</sub>]이고, 6절의 ε*가 그것입니다. 손실 값이 샘플 품질을 그대로 말해 주지 않는 이유이기도 합니다.</li>
+<li><strong>모드가 빠지지 않습니다.</strong> 가우시안 8개에서 봉우리 여덟 곳이 모두 채워집니다. 손실이 데이터 전체에 대한 평균이라, 어떤 데이터 점이든 그 근처의 노이즈를 못 맞히면 벌점을 받습니다. 같은 데이터에서 GAN이 자주 보이는 모드 붕괴가 구조적으로 일어나기 어렵습니다.</li>
+</ul>
+
+<!-- ───────── 8 ───────── -->
+<h2 id="s8">8. 신경망: U-Net과 시간 임베딩</h2>
+<p>ε<sub>θ</sub>(x<sub>t</sub>, t)는 입력과 출력의 크기가 같아야 한다는 것 외에는 구조에 제약이 없습니다. 논문은 U-Net을 썼습니다(부록 B).</p>
+<div class="tw"><table>
+<tr><th>부품</th><th>논문의 선택</th></tr>
+<tr><td>뼈대</td><td>PixelCNN++의 U-Net(Wide ResNet 기반). 해상도를 절반씩 줄였다가 다시 늘리고, 같은 해상도끼리 건너뛰기 연결</td></tr>
+<tr><td>해상도 단계</td><td>32×32 모델은 4단계(32 → 4), 256×256 모델은 6단계. 단계마다 residual block 2개</td></tr>
+<tr><td>정규화</td><td>weight normalization 대신 group normalization</td></tr>
+<tr><td>어텐션</td><td>16×16 해상도의 특징 맵에 셀프 어텐션</td></tr>
+<tr><td>시간 t</td><td>Transformer의 사인 위치 임베딩으로 바꿔 모든 residual block에 더함</td></tr>
+<tr><td>파라미터</td><td>CIFAR10 35.7M · LSUN/CelebA-HQ 114M · LSUN Bedroom 큰 모델 256M</td></tr>
+</table></div>
+<p>중요한 것은 <strong>T = 1000개의 걸음이 신경망 하나를 공유한다</strong>는 점입니다. 걸음마다 신경망을 따로 두지 않고 t를 입력으로 알려 줍니다. t = 900의 "큰 덩어리 잡기"와 t = 10의 "세부 다듬기"는 다른 일이지만, 시간 임베딩을 조건으로 같은 가중치가 둘 다 합니다. 사인 임베딩이 무엇인지는 <a href="https://dev-jonghoonpark.github.io/how-positional-encoding-works/">How Positional Encoding Works</a>에 있습니다.</p>
+<p>CIFAR10 학습 설정은 Adam, 학습률 2 × 10⁻⁴, 배치 128, 80만 스텝, dropout 0.1, EMA 0.9999, 좌우 뒤집기입니다. TPU v3-8에서 초당 21스텝으로 10.6시간이 걸렸고, 이미지 256장을 샘플링하는 데 17초가 걸렸다고 적혀 있습니다.</p>
+
+<!-- ───────── 9 ───────── -->
+<h2 id="s9">9. 논문의 결과</h2>
+<h3>표 1 · CIFAR10 샘플 품질</h3>
+<div class="tw"><table>
+<tr><th>모델</th><th class="num">IS ↑</th><th class="num">FID ↓</th><th class="num">NLL (bits/dim) ↓</th></tr>
+<tr><td colspan="4" style="color:var(--muted);font-size:12.5px">조건부</td></tr>
+<tr><td>BigGAN</td><td class="num">9.22</td><td class="num">14.73</td><td class="num">—</td></tr>
+<tr><td>StyleGAN2 + ADA (v1)</td><td class="num">10.06</td><td class="num">2.67</td><td class="num">—</td></tr>
+<tr><td colspan="4" style="color:var(--muted);font-size:12.5px">무조건부</td></tr>
+<tr><td>Gated PixelCNN</td><td class="num">4.60</td><td class="num">65.93</td><td class="num">3.03</td></tr>
+<tr><td>NCSN (Song &amp; Ermon 2019)</td><td class="num">8.87</td><td class="num">25.32</td><td class="num">—</td></tr>
+<tr><td>SNGAN</td><td class="num">8.22</td><td class="num">21.7</td><td class="num">—</td></tr>
+<tr><td>SNGAN-DDLS</td><td class="num">9.09</td><td class="num">15.42</td><td class="num">—</td></tr>
+<tr><td>StyleGAN2 + ADA (v1)</td><td class="num">9.74</td><td class="num">3.26</td><td class="num">—</td></tr>
+<tr><td>DDPM (L, 고정 등방 Σ)</td><td class="num">7.67</td><td class="num">13.51</td><td class="num">≤ 3.70</td></tr>
+<tr><td><strong>DDPM (L<sub>simple</sub>)</strong></td><td class="num"><strong>9.46</strong></td><td class="num"><strong>3.17</strong></td><td class="num">≤ 3.75</td></tr>
+</table></div>
+<p>무조건부 FID 3.17은 표에 실린 무조건부 모델 가운데 가장 낮고, 클래스 조건부 BigGAN보다도 낮습니다. 256×256 LSUN에서는 Church 7.89, Bedroom 4.90(큰 모델)으로 ProgressiveGAN과 비슷한 수준이었습니다. 반면 가능도(3.75 bits/dim)는 자기회귀 모델에 뒤집니다. <strong>샘플 품질은 좋은데 가능도는 평범하다</strong>는 것이 이 논문의 결과가 가진 특징입니다.</p>
+<h3>표 2 · 무엇을 예측하고 어떤 손실을 쓸 것인가</h3>
+<div class="tw"><table>
+<tr><th>예측 대상</th><th>손실</th><th class="num">IS</th><th class="num">FID</th></tr>
+<tr><td rowspan="3">평균 μ̃</td><td>L, 학습하는 대각 Σ</td><td class="num">7.28</td><td class="num">23.69</td></tr>
+<tr><td>L, 고정 등방 Σ</td><td class="num">8.06</td><td class="num">13.22</td></tr>
+<tr><td>‖μ̃ − μ̃<sub>θ</sub>‖² (가중치 없음)</td><td class="num">—</td><td class="num">학습 불안정</td></tr>
+<tr><td rowspan="3">노이즈 ε</td><td>L, 학습하는 대각 Σ</td><td class="num">—</td><td class="num">학습 불안정</td></tr>
+<tr><td>L, 고정 등방 Σ</td><td class="num">7.67</td><td class="num">13.51</td></tr>
+<tr><td><strong>‖ε − ε<sub>θ</sub>‖² (L<sub>simple</sub>)</strong></td><td class="num"><strong>9.46</strong></td><td class="num"><strong>3.17</strong></td></tr>
+</table></div>
+<p>변분 하한 L을 그대로 쓰면 평균 예측과 노이즈 예측이 비슷합니다(13.22 vs 13.51). 차이를 만든 것은 <strong>ε 예측과 가중치 없는 손실의 조합</strong>입니다. 같은 단순화를 평균 예측에 적용하면 학습이 되지 않았습니다. 분산을 학습하는 것도 이 논문에서는 불안정하거나 품질을 떨어뜨렸습니다.</p>
+<h3>가능도의 절반 이상은 보이지 않는 세부에 쓰인다</h3>
+<p>논문 4.3절은 3.75 bits/dim을 L<sub>1</sub> + … + L<sub>T</sub>(rate) 1.78과 L<sub>0</sub>(distortion) 1.97로 나눕니다. distortion 1.97 bits/dim은 0~255 눈금에서 RMSE 0.95에 해당합니다. 즉 부호 길이의 절반 넘게가 <strong>눈으로 구별할 수 없는 픽셀 값 차이</strong>를 적는 데 쓰입니다. 확산 모델은 큰 구조에 비트를 조금 쓰고 나머지를 미세한 세부에 쓰는, 손실 압축에 알맞은 귀납 편향을 가지고 있고, 이것이 가능도가 평범한데도 샘플이 좋은 이유라고 논문은 해석합니다. 같은 절은 확산 샘플링을 "좌표 순서가 아닌 일반화된 비트 순서로 푸는 자기회귀 디코딩"으로 볼 수 있다고도 적습니다.</p>
+
+<!-- ───────── 10 ───────── -->
+<h2 id="s10">10. 한계와 그다음</h2>
+<ul>
+<li><strong>느린 샘플링.</strong> 이미지 한 장에 신경망을 1000번 통과합니다. <em>DDIM</em>(Song 외 2020)은 같은 학습된 ε<sub>θ</sub>를 그대로 두고 갱신식만 바꿔 50스텝 안팎으로 줄였습니다.</li>
+<li><strong>평범한 가능도와 고정된 분산.</strong> <em>Improved DDPM</em>(Nichol &amp; Dhariwal 2021)은 분산을 β<sub>t</sub>와 β̃<sub>t</sub> 사이의 보간으로 학습하고 코사인 스케줄을 써서 가능도를 개선했습니다.</li>
+<li><strong>이산 시간.</strong> <em>Score SDE</em>(Song 외 2021)는 T → ∞의 연속 시간 극한에서 DDPM과 score matching(NCSN)이 같은 틀의 두 이산화라는 것을 보였습니다.</li>
+<li><strong>조건이 없다.</strong> 이 논문의 모델은 무조건부입니다. <em>Classifier guidance</em>(Dhariwal &amp; Nichol 2021)와 <em>classifier-free guidance</em>(Ho &amp; Salimans 2022)가 클래스·텍스트 조건을 붙였습니다.</li>
+<li><strong>픽셀 공간의 비용.</strong> <em>Latent Diffusion</em>(Rombach 외 2022)은 오토인코더의 잠재 공간에서 확산을 돌려 계산을 줄였고, 이것이 Stable Diffusion입니다. 이 흐름은 <a href="https://dev-jonghoonpark.github.io/how-text-to-image-works/">How Text-to-Image Works</a>에서 이어집니다.</li>
+</ul>
+<p>확산 모델이라는 틀 자체는 Sohl-Dickstein 외(2015)가 먼저 제안했습니다. DDPM의 기여는 ε 예측 매개변수화와 L<sub>simple</sub>, 그리고 U-Net으로 <strong>이 틀이 실제로 고품질 이미지를 만든다는 것을 처음 보인 것</strong>입니다.</p>
+
+<!-- ───────── 11 ───────── -->
+<h2 id="s11">11. 정리</h2>
+<div class="tw"><table>
+<tr><th>질문</th><th>답</th></tr>
+<tr><td>순방향 과정은?</td><td>학습 없는 고정 사슬. x<sub>t</sub> = √ᾱ<sub>t</sub>x<sub>0</sub> + √(1 − ᾱ<sub>t</sub>)ε로 한 번에 계산</td></tr>
+<tr><td>신경망이 배우는 것은?</td><td>x<sub>t</sub>와 t를 보고 섞인 노이즈 ε를 맞히기</td></tr>
+<tr><td>왜 그것으로 충분한가?</td><td>x<sub>0</sub>를 알 때의 사후분포가 가우시안이라, 변분 하한이 평균 맞히기 = 노이즈 맞히기가 됨</td></tr>
+<tr><td>왜 T가 커야 하는가?</td><td>걸음이 작아야 역방향 한 걸음이 가우시안이고, 그러면서 ᾱ<sub>T</sub> ≈ 0에 도달해야 하므로</td></tr>
+<tr><td>왜 가중치를 버렸는가?</td><td>쉬운 작은 t의 비중을 낮춰 샘플 품질이 좋아짐 (FID 13.51 → 3.17)</td></tr>
+<tr><td>왜 학습이 안정적인가?</td><td>상대 신경망 없이 고정된 정답에 대한 평균 제곱 오차를 줄일 뿐이므로</td></tr>
+<tr><td>대가는?</td><td>샘플 한 장에 신경망 T번, 평범한 가능도</td></tr>
+</table></div>
+
+<!-- ───────── 12 ───────── -->
+<h2 id="s12">12. 확인 퀴즈</h2>
+<div id="quiz"></div>
+<p class="quiz-score" id="quizScore"></p>
+
+<footer>
+<p><strong>참고 문헌</strong></p>
+<ul class="refs">
+<li>Ho, Jain &amp; Abbeel (2020), <em>Denoising Diffusion Probabilistic Models</em>, NeurIPS 2020 — <a href="https://arxiv.org/abs/2006.11239" target="_blank" rel="noopener">arXiv:2006.11239</a> · <a href="https://github.com/hojonathanho/diffusion" target="_blank" rel="noopener">코드</a></li>
+<li>Sohl-Dickstein, Weiss, Maheswaranathan &amp; Ganguli (2015), <em>Deep Unsupervised Learning using Nonequilibrium Thermodynamics</em> — <a href="https://arxiv.org/abs/1503.03585" target="_blank" rel="noopener">arXiv:1503.03585</a></li>
+<li>Song &amp; Ermon (2019), <em>Generative Modeling by Estimating Gradients of the Data Distribution</em> — <a href="https://arxiv.org/abs/1907.05600" target="_blank" rel="noopener">arXiv:1907.05600</a></li>
+<li>Mescheder, Geiger &amp; Nowozin (2018), <em>Which Training Methods for GANs do actually Converge?</em> — <a href="https://arxiv.org/abs/1801.04406" target="_blank" rel="noopener">arXiv:1801.04406</a> (Dirac-GAN)</li>
+<li>Song, Meng &amp; Ermon (2020), <em>Denoising Diffusion Implicit Models</em> — <a href="https://arxiv.org/abs/2010.02502" target="_blank" rel="noopener">arXiv:2010.02502</a></li>
+<li>Nichol &amp; Dhariwal (2021), <em>Improved Denoising Diffusion Probabilistic Models</em> — <a href="https://arxiv.org/abs/2102.09672" target="_blank" rel="noopener">arXiv:2102.09672</a></li>
+<li>Song 외 (2021), <em>Score-Based Generative Modeling through Stochastic Differential Equations</em> — <a href="https://arxiv.org/abs/2011.13456" target="_blank" rel="noopener">arXiv:2011.13456</a></li>
+<li>Ho &amp; Salimans (2022), <em>Classifier-Free Diffusion Guidance</em> — <a href="https://arxiv.org/abs/2207.12598" target="_blank" rel="noopener">arXiv:2207.12598</a></li>
+<li>Rombach 외 (2022), <em>High-Resolution Image Synthesis with Latent Diffusion Models</em> — <a href="https://arxiv.org/abs/2112.10752" target="_blank" rel="noopener">arXiv:2112.10752</a></li>
+</ul>
+<p style="margin-top:18px"><a href="https://github.com/dev-jonghoonpark/how-ai-works">how-ai-works</a> 시리즈 · 모든 계산은 브라우저에서 실시간으로 이루어집니다.</p>
+</footer>
+</div>
+<script>
+var $=function(s){return document.querySelector(s);};
+var cssCache={};
+function css(v){return v in cssCache?cssCache[v]:(cssCache[v]=getComputedStyle(document.documentElement).getPropertyValue(v).trim());}
+function setup(cv){
+  if(!cv.dataset.h)cv.dataset.h=cv.getAttribute('height');
+  var dpr=Math.min(2,window.devicePixelRatio||1), w=cv.clientWidth, h=+cv.dataset.h;
+  var bw=Math.round(w*dpr), bh=Math.round(h*dpr);
+  if(cv.width!==bw||cv.height!==bh){cv.width=bw;cv.height=bh;cv.style.height=h+'px';}
+  var c=cv.getContext('2d'); c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,w,h);
+  return {c:c,w:w,h:h};
+}
+function fmt(x,d){var s=(+x).toFixed(d==null?2:d);return (+s===0?s.replace('-',''):s).replace('-','−');}
+function sci(x){if(x===0)return '0';if(Math.abs(x)>=0.01&&Math.abs(x)<1e4)return fmt(x,x<1?4:2);var e=Math.floor(Math.log10(Math.abs(x)));return fmt(x/Math.pow(10,e),1)+' × 10'+String(e).replace('-','⁻').replace(/\d/g,function(d){return '⁰¹²³⁴⁵⁶⁷⁸⁹'[d];});}
+function font(c,sz,w){c.font=(w||'')+' '+sz+'px system-ui,-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif';}
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(r){var u=1-r(),v=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+function seg(id,fn){var bs=document.querySelectorAll('#'+id+' button');bs.forEach(function(b){b.addEventListener('click',function(){
+  bs.forEach(function(o){o.setAttribute('aria-pressed',o===b?'true':'false');});fn(b.dataset.v);});});}
+
+/* 선형 β 스케줄: 인덱스 1..T, ab[0]=1 */
+function mkSched(T,b1,bT){var be=new Float64Array(T+1),al=new Float64Array(T+1),ab=new Float64Array(T+1);ab[0]=1;al[0]=1;
+  for(var t=1;t<=T;t++){be[t]=T===1?bT:b1+(bT-b1)*(t-1)/(T-1);al[t]=1-be[t];ab[t]=ab[t-1]*al[t];}
+  return {T:T,be:be,al:al,ab:ab};}
+
+/* 공용 선 그래프 */
+function plot(cv,o){
+  var s=setup(cv),c=s.c,w=s.w,h=s.h,L=o.L||44,R=12,Tp=12,B=30;
+  var ty=o.log?function(y){return Math.log10(Math.max(y,1e-300));}:function(y){return y;};
+  var y0=ty(o.y0),y1=ty(o.y1);
+  var X=function(x){return L+(x-o.x0)/(o.x1-o.x0)*(w-L-R);};
+  var Y=function(y){return h-B-(Math.max(y0,Math.min(y1,ty(y)))-y0)/(y1-y0)*(h-Tp-B);};
+  c.lineWidth=1;font(c,11);c.fillStyle=css('--muted');
+  c.textAlign='right';c.textBaseline='middle';
+  (o.yt||[]).forEach(function(v){c.strokeStyle=css('--grid');c.beginPath();c.moveTo(L,Y(v));c.lineTo(w-R,Y(v));c.stroke();
+    c.fillText(o.yf?o.yf(v):String(v),L-6,Y(v));});
+  c.textAlign='center';c.textBaseline='top';
+  (o.xt||[]).forEach(function(v,i,a){c.textAlign=i===a.length-1?'right':i===0?'left':'center';c.fillText(o.xf?o.xf(v):String(v),X(v)+(i===a.length-1?4:0),h-B+6);});
+  c.strokeStyle=css('--axis');c.beginPath();c.moveTo(L,Tp);c.lineTo(L,h-B);c.lineTo(w-R,h-B);c.stroke();
+  if(o.xl){c.textAlign='center';c.fillText(o.xl,(L+w-R)/2+((o.xt||[]).length%2?24:0),h-B+6);}
+  (o.series||[]).forEach(function(se){
+    c.strokeStyle=css(se.col);c.lineWidth=se.w||2;c.setLineDash(se.dash||[]);c.beginPath();
+    for(var i=0;i<se.x.length;i++){var px=X(se.x[i]),py=Y(se.y[i]);if(i)c.lineTo(px,py);else c.moveTo(px,py);}
+    c.stroke();c.setLineDash([]);});
+  if(o.cx!=null){c.strokeStyle=css('--text-secondary');c.lineWidth=1;c.setLineDash([4,4]);c.beginPath();c.moveTo(X(o.cx),Tp);c.lineTo(X(o.cx),h-B);c.stroke();c.setLineDash([]);
+    (o.series||[]).forEach(function(se){if(se.cy==null)return;c.fillStyle=css(se.col);c.beginPath();c.arc(X(o.cx),Y(se.cy),4,0,7);c.fill();});}
+  return {c:c,X:X,Y:Y,w:w,h:h};
+}
+
+/* ══════ 데모 1(본문 데모 1): Dirac-GAN vs 회귀 ══════ */
+var d5mode='sim';
+function d5draw(){
+  var h=+$('#d5h').value;$('#d5hV').textContent=fmt(h,2);
+  var N=300,th=1,ps=0.5,tr=1,P=[[th,ps]],gx=[0],gy=[1],ry=[1];
+  for(var i=1;i<=N;i++){
+    var f=1/(1+Math.exp(ps*th));
+    if(d5mode==='sim'){var nt=th-h*f*ps,np=ps+h*f*th;th=nt;ps=np;}
+    else{th=th-h*f*ps;f=1/(1+Math.exp(ps*th));ps=ps+h*f*th;}
+    tr=tr*(1-h);P.push([th,ps]);gx.push(i);gy.push(Math.abs(th));ry.push(Math.abs(tr));
+  }
+  var s=setup($('#cv5a')),c=s.c,w=s.w,hh=s.h,m=0;
+  P.forEach(function(p){m=Math.max(m,Math.abs(p[0]),Math.abs(p[1]));});m=Math.max(1.5,m*1.08);
+  var sz=Math.min(w,hh)-24,cx=w/2,cy=hh/2,X=function(x){return cx+x/m*sz/2;},Y=function(y){return cy-y/m*sz/2;};
+  c.strokeStyle=css('--grid');c.lineWidth=1;c.beginPath();c.moveTo(X(-m),cy);c.lineTo(X(m),cy);c.moveTo(cx,Y(-m));c.lineTo(cx,Y(m));c.stroke();
+  font(c,11);c.fillStyle=css('--muted');c.textAlign='right';c.fillText('θ (생성자)',X(m),cy+14);c.textAlign='left';c.fillText('ψ (판별자)',cx+6,Y(m)+10);
+  c.strokeStyle=css('--s2');c.lineWidth=1.5;c.beginPath();P.forEach(function(p,i){if(i)c.lineTo(X(p[0]),Y(p[1]));else c.moveTo(X(p[0]),Y(p[1]));});c.stroke();
+  c.fillStyle=css('--s2');c.beginPath();c.arc(X(P[0][0]),Y(P[0][1]),4,0,7);c.fill();
+  c.fillStyle=css('--good');c.beginPath();c.arc(cx,cy,5,0,7);c.fill();
+  c.fillStyle=css('--text-secondary');c.textAlign='left';c.fillText('시작',X(P[0][0])+7,Y(P[0][1])-6);c.fillText('균형점',cx+8,cy-8);
+  plot($('#cv5b'),{x0:0,x1:N,y0:1e-4,y1:100,log:true,yt:[1e-4,1e-2,1,100],yf:function(v){return v>=1?String(v):'10'+(v===1e-2?'⁻²':'⁻⁴');},xt:[0,100,200,300],xl:'스텝',
+    series:[{x:gx,y:gy,col:'--s2'},{x:gx,y:ry,col:'--s1'}]});
+  $('#d5g').textContent=sci(Math.abs(th));$('#d5r').textContent=sci(Math.abs(tr));
+}
+$('#d5h').addEventListener('input',d5draw);seg('d5seg',function(v){d5mode=v;d5draw();});
+
+/* ══════ 데모 2: 이미지 순방향 ══════ */
+var IM=64,S1000=mkSched(1000,1e-4,0.02),d1x0=new Float32Array(IM*IM*3),d1eps=new Float32Array(IM*IM*3),d1seed=3,d1off=[],d1timer=null;
+(function(){
+  var o=document.createElement('canvas');o.width=o.height=IM;var c=o.getContext('2d');
+  var g=c.createLinearGradient(0,0,0,IM);g.addColorStop(0,'#3f8fe0');g.addColorStop(0.7,'#bfe3f7');c.fillStyle=g;c.fillRect(0,0,IM,IM);
+  c.fillStyle='#ffd23c';c.beginPath();c.arc(49,13,7,0,7);c.fill();
+  c.fillStyle='#fff';c.beginPath();c.arc(14,13,5,0,7);c.arc(21,11,6,0,7);c.arc(27,14,4,0,7);c.fill();
+  c.fillStyle='#3c9a4a';c.beginPath();c.moveTo(0,46);c.quadraticCurveTo(20,30,40,44);c.quadraticCurveTo(54,36,64,42);c.lineTo(64,64);c.lineTo(0,64);c.fill();
+  c.fillStyle='#2f7a3a';c.fillRect(0,56,64,8);
+  c.fillStyle='#e8dcc0';c.fillRect(22,38,20,16);
+  c.fillStyle='#c0392b';c.beginPath();c.moveTo(19,39);c.lineTo(32,27);c.lineTo(45,39);c.fill();
+  c.fillStyle='#6b4a2b';c.fillRect(30,45,5,9);
+  c.fillStyle='#2a78d6';c.fillRect(24,42,4,4);c.fillRect(37,42,4,4);
+  c.fillStyle='#1d5c2a';c.beginPath();c.arc(53,45,6,0,7);c.fill();c.fillStyle='#6b4a2b';c.fillRect(52,50,2,6);
+  var d=c.getImageData(0,0,IM,IM).data;for(var i=0,j=0;i<d.length;i+=4){d1x0[j++]=d[i]/127.5-1;d1x0[j++]=d[i+1]/127.5-1;d1x0[j++]=d[i+2]/127.5-1;}
+  for(var k=0;k<3;k++){var q=document.createElement('canvas');q.width=q.height=IM;d1off.push(q);}
+})();
+function d1noise(){var r=mulberry(d1seed);for(var i=0;i<d1eps.length;i++)d1eps[i]=gauss(r);}
+function d1draw(){
+  var t=+$('#d1t').value,ab=S1000.ab[t],sa=Math.sqrt(ab),sn=Math.sqrt(1-ab);
+  $('#d1tV').textContent=t;$('#d1a').textContent=fmt(sa,3);$('#d1n').textContent=fmt(sn,3);
+  $('#d1s').textContent=t===0?'∞':sci(ab/(1-ab));
+  var imgs=d1off.map(function(o){return o.getContext('2d').createImageData(IM,IM);});
+  for(var i=0,j=0;i<d1x0.length;i+=3,j+=4){for(var k=0;k<3;k++){
+    var a=sa*d1x0[i+k],b=sn*d1eps[i+k];
+    imgs[0].data[j+k]=a*127.5+127.5;imgs[1].data[j+k]=b*127.5+127.5;imgs[2].data[j+k]=(a+b)*127.5+127.5;}
+    imgs[0].data[j+3]=imgs[1].data[j+3]=imgs[2].data[j+3]=255;}
+  d1off.forEach(function(o,k){o.getContext('2d').putImageData(imgs[k],0,0);});
+  var cv=$('#cv1'),w0=cv.clientWidth,gap=w0<480?22:34,sz=Math.floor(Math.min((w0-2*gap)/3,196));cv.dataset.h=sz+34;var s=setup(cv),c=s.c,w=s.w,h=s.h,x0=(w-3*sz-2*gap)/2;
+  c.imageSmoothingEnabled=false;
+  var labs=['√ᾱₜ · x₀  (신호)','√(1−ᾱₜ) · ε  (노이즈)','xₜ'];
+  font(c,w<480?11:12.5,'600');c.textAlign='center';c.textBaseline='top';
+  for(var k=0;k<3;k++){var x=x0+k*(sz+gap);c.drawImage(d1off[k],x,6,sz,sz);c.strokeStyle=css('--axis');c.strokeRect(x+0.5,6.5,sz-1,sz-1);
+    c.fillStyle=css('--text-secondary');c.fillText(labs[k],x+sz/2,sz+12);}
+  font(c,18,'600');c.textBaseline='middle';c.fillStyle=css('--muted');c.fillText('+',x0+sz+gap/2,6+sz/2);c.fillText('=',x0+2*sz+1.5*gap,6+sz/2);
+}
+$('#d1t').addEventListener('input',function(){d1stop();d1draw();});
+$('#d1re').addEventListener('click',function(){d1seed++;d1noise();d1draw();});
+function d1stop(){if(d1timer){cancelAnimationFrame(d1timer);d1timer=null;$('#d1play').textContent='▶ 0 → 1000 재생';}}
+$('#d1play').addEventListener('click',function(){
+  if(d1timer){d1stop();return;}
+  var t=0;$('#d1play').textContent='■ 정지';
+  (function step(){$('#d1t').value=t;d1draw();t+=4;if(t>1000){d1timer=null;$('#d1play').textContent='▶ 0 → 1000 재생';return;}d1timer=requestAnimationFrame(step);})();
+});
+
+/* ══════ 데모 3: 스케줄 계산기 ══════ */
+var d2mode='a';
+function d2draw(){
+  var T=+$('#d2T').value,bT=+$('#d2b').value,ts=$('#d2t');
+  if(+ts.max!==T){var fr=(+ts.value)/(+ts.max);ts.max=T;ts.value=Math.max(1,Math.round(fr*T));}
+  var t=+ts.value,S=mkSched(T,1e-4,bT);
+  $('#d2TV').textContent=T;$('#d2bV').textContent=fmt(bT,3);$('#d2tV').textContent=t;
+  var xs=[],A=[],Bv=[];
+  function c0(i){return Math.sqrt(S.ab[i-1])*S.be[i]/(1-S.ab[i]);}
+  function ct(i){return Math.sqrt(S.al[i])*(1-S.ab[i-1])/(1-S.ab[i]);}
+  function bt(i){return (1-S.ab[i-1])/(1-S.ab[i])*S.be[i];}
+  function wt(i){return S.be[i]/(2*S.al[i]*(1-S.ab[i]));}
+  for(var i=1;i<=T;i++){xs.push(i);
+    if(d2mode==='a'){A.push(Math.sqrt(S.ab[i]));Bv.push(Math.sqrt(1-S.ab[i]));}
+    else if(d2mode==='b'){A.push(c0(i));Bv.push(ct(i));}
+    else if(d2mode==='c'){A.push(bt(i)/S.be[i]);}
+    else {A.push(wt(i));Bv.push(1);}
+  }
+  var xt=[1,T/4,T/2,3*T/4,T].map(Math.round),o={x0:1,x1:T,xt:xt,xl:'t',cx:t};
+  var leg,l2,v2;
+  if(d2mode==='a'){o.y0=0;o.y1=1;o.yt=[0,0.25,0.5,0.75,1];o.series=[{x:xs,y:A,col:'--s1',cy:A[t-1]},{x:xs,y:Bv,col:'--s2',cy:Bv[t-1]}];
+    leg=[['--s1','√ᾱₜ — 남은 신호'],['--s2','√(1−ᾱₜ) — 노이즈']];l2='√ᾱ<sub>t</sub> , √(1 − ᾱ<sub>t</sub>)';v2=fmt(A[t-1],3)+' , '+fmt(Bv[t-1],3);}
+  else if(d2mode==='b'){o.y0=0;o.y1=1;o.yt=[0,0.25,0.5,0.75,1];o.series=[{x:xs,y:A,col:'--s3',cy:A[t-1]},{x:xs,y:Bv,col:'--s4',cy:Bv[t-1]}];
+    leg=[['--s3','x₀의 계수'],['--s4','xₜ의 계수']];l2='x<sub>0</sub> 계수 , x<sub>t</sub> 계수';v2=fmt(A[t-1],4)+' , '+fmt(Bv[t-1],4);}
+  else if(d2mode==='c'){o.y0=0;o.y1=1;o.yt=[0,0.25,0.5,0.75,1];o.series=[{x:xs,y:A,col:'--s1',cy:A[t-1]}];
+    leg=[['--s1','β̃ₜ / βₜ — 1이면 두 선택이 같다']];l2='β<sub>t</sub> , β̃<sub>t</sub>';v2=sci(S.be[t])+' , '+sci(bt(t));}
+  else {o.log=true;o.y0=1e-3;o.y1=2;o.yt=[1e-3,1e-2,1e-1,1];o.yf=function(v){return v===1?'1':v===0.1?'0.1':v===0.01?'0.01':'0.001';};
+    o.series=[{x:xs,y:A,col:'--s2',cy:A[t-1]},{x:xs,y:Bv,col:'--s1',dash:[6,4],cy:1}];
+    leg=[['--s2','식 (12)의 가중치 (σₜ² = βₜ)'],['--s1','L_simple — 모두 1']];l2='식 (12) 가중치';v2=fmt(A[t-1],4);}
+  plot($('#cv2'),o);
+  $('#d2leg').innerHTML=leg.map(function(l){return '<span><i style="background:var('+l[0]+')"></i>'+l[1]+'</span>';}).join('');
+  $('#d2r1').textContent=sci(S.ab[t]);
+  $('#d2r2l').innerHTML=l2+'<b id="d2r2">'+v2+'</b>';
+  var aT=S.ab[T],kl=0.5*((1-aT)+aT*0.25-1-Math.log(1-aT))/Math.LN2;
+  $('#d2r3').textContent=sci(aT);$('#d2r4').textContent=sci(kl);
+}
+['#d2T','#d2b','#d2t'].forEach(function(s){$(s).addEventListener('input',d2draw);});
+seg('d2seg',function(v){d2mode=v;d2draw();});
+
+/* ══════ 데모 4: 1차원, 완벽한 ε* ══════ */
+var MX={m:[-1.2,0.2,1.3],w:[0.3,0.45,0.25],s:0.08},D3T=[25,50,100,250,500,1000],d3sig='b',d3st=null,d3raf=null,d3seed=11;
+function d3eps(x,ab){var v=ab*MX.s*MX.s+1-ab,sa=Math.sqrt(ab),z=0,sc=0;
+  for(var i=0;i<3;i++){var d=x-sa*MX.m[i],p=MX.w[i]*Math.exp(-d*d/(2*v));z+=p;sc+=p*(-d/v);}
+  return z>1e-300?-Math.sqrt(1-ab)*sc/z:0;}
+function d3dens(x,ab){var v=ab*MX.s*MX.s+1-ab,sa=Math.sqrt(ab),z=0;
+  for(var i=0;i<3;i++){var d=x-sa*MX.m[i];z+=MX.w[i]*Math.exp(-d*d/(2*v))/Math.sqrt(2*Math.PI*v);}return z;}
+function d3run(){
+  var T=D3T[+$('#d3T').value],k=1000/T,S=mkSched(T,1e-4*k,Math.min(0.999,0.02*k));
+  $('#d3TV').textContent=T+'  (β_T = '+fmt(S.be[T],3)+')';
+  var N=1500,r=mulberry(d3seed),NC=Math.min(T,200),tr=[],fin=new Float64Array(N);
+  for(var n=0;n<N;n++){var x=gauss(r),path=n<48?[x]:null,nextc=1;
+    for(var t=T;t>=1;t--){var e=d3eps(x,S.ab[t]),mean=(x-S.be[t]/Math.sqrt(1-S.ab[t])*e)/Math.sqrt(S.al[t]);
+      var sg=(t===1||d3sig==='0')?0:Math.sqrt(d3sig==='b'?S.be[t]:(1-S.ab[t-1])/(1-S.ab[t])*S.be[t]);
+      x=mean+sg*gauss(r);
+      if(path){var done=T-t+1;if(done>=nextc*T/NC){path.push(x);nextc++;}}}
+    fin[n]=x;if(path)tr.push(path);}
+  /* 밀도 배경 */
+  var HC=120,HR=110,hm=document.createElement('canvas');hm.width=HC;hm.height=HR;var hc=hm.getContext('2d'),im=hc.createImageData(HC,HR);
+  var dark=document.documentElement.getAttribute('data-theme')==='dark',rgb=dark?[57,135,229]:[42,120,214];
+  for(var cI=0;cI<HC;cI++){var tt=Math.round(T*(1-cI/(HC-1))),ab=S.ab[tt],col=[],mx=0;
+    for(var rI=0;rI<HR;rI++){var xx=2.4-4.8*(rI+0.5)/HR,dv=d3dens(xx,ab);col.push(dv);if(dv>mx)mx=dv;}
+    for(rI=0;rI<HR;rI++){var q=(rI*HC+cI)*4;im.data[q]=rgb[0];im.data[q+1]=rgb[1];im.data[q+2]=rgb[2];im.data[q+3]=Math.round(170*Math.pow(col[rI]/mx,0.7));}}
+  hc.putImageData(im,0,0);
+  var cnt=[0,0,0],mid=[],sum=0,sq=0;
+  for(n=0;n<N;n++){var f=fin[n],ci=f<-0.5?0:f<0.75?1:2;cnt[ci]++;if(ci===1){sum+=f;sq+=f*f;mid.push(f);}}
+  var sd=mid.length>1?Math.sqrt(Math.max(0,sq/mid.length-Math.pow(sum/mid.length,2))):0;
+  $('#d3p').textContent=cnt.map(function(c){return Math.round(c/N*100);}).join(' · ')+'%';
+  $('#d3w').textContent=fmt(sd,3)+' / '+fmt(MX.s,3);
+  d3st={T:T,tr:tr,fin:fin,hm:hm,NC:NC,p:0};
+}
+function d3draw(){
+  if(!d3st)return;var st=d3st,s=setup($('#cv3')),c=s.c,w=s.w,h=s.h,L=34,HW=w<480?64:96,R=HW+10,Tp=10,B=28,pw=w-L-R,ph=h-Tp-B;
+  var Y=function(x){return Tp+(2.4-x)/4.8*ph;},X=function(fr){return L+fr*pw;};
+  c.imageSmoothingEnabled=true;c.drawImage(st.hm,L,Tp,pw,ph);
+  c.strokeStyle=css('--axis');c.lineWidth=1;c.strokeRect(L+0.5,Tp+0.5,pw,ph);
+  font(c,11);c.fillStyle=css('--muted');c.textAlign='right';c.textBaseline='middle';[-2,-1,0,1,2].forEach(function(v){c.fillText(String(v).replace('-','−'),L-6,Y(v));});
+  c.textAlign='left';c.textBaseline='top';c.fillText('t = '+st.T+'  (노이즈)',L,h-B+7);c.textAlign='right';c.fillText('t = 0  (데이터)',L+pw,h-B+7);
+  c.textAlign='center';c.fillText('역방향 →',L+pw/2,h-B+7);
+  var upto=Math.floor(st.p*st.NC);
+  c.strokeStyle=css('--s2');c.globalAlpha=0.55;c.lineWidth=1;
+  st.tr.forEach(function(p){c.beginPath();for(var i=0;i<=upto&&i<p.length;i++){var px=X(i/st.NC),py=Y(Math.max(-2.4,Math.min(2.4,p[i])));if(i)c.lineTo(px,py);else c.moveTo(px,py);}c.stroke();});
+  c.globalAlpha=1;
+  /* 오른쪽 히스토그램 */
+  var hx=L+pw+10,NB=60,bins=new Float64Array(NB),bw=4.8/NB;
+  if(st.p>=1){for(var n=0;n<st.fin.length;n++){var b=Math.floor((2.4-st.fin[n])/bw);if(b>=0&&b<NB)bins[b]++;}}
+  var dm=d3dens(MX.m[1],1),sc=(HW-4)/dm;
+  c.fillStyle=css('--s2');c.globalAlpha=0.6;
+  for(b=0;b<NB;b++){var dv=bins[b]/st.fin.length/bw;if(dv>0)c.fillRect(hx,Tp+b*ph/NB,Math.min(HW,dv*sc),ph/NB-0.5);}
+  c.globalAlpha=1;c.strokeStyle=css('--text-primary');c.lineWidth=1.3;c.beginPath();
+  for(var i=0;i<=220;i++){var xx=2.4-4.8*i/220,px=hx+Math.min(HW,d3dens(xx,1)*sc),py=Y(xx);if(i)c.lineTo(px,py);else c.moveTo(px,py);}c.stroke();
+}
+function d3go(){d3run();if(d3raf)cancelAnimationFrame(d3raf);
+  (function step(){d3st.p=Math.min(1,d3st.p+0.025);d3draw();d3raf=d3st.p<1?requestAnimationFrame(step):null;})();}
+$('#d3T').addEventListener('input',d3go);$('#d3go').addEventListener('click',function(){d3seed++;d3go();});
+seg('d3seg',function(v){d3sig=v;d3go();});
+
+/* ══════ 데모 5: 2차원 학습 ══════ */
+var NN={sz:[34,64,64,64,2],T:100,B:64,N:600,F:[1,2,4,8],lr:2e-3,ema:0.995},SN=mkSched(100,1e-3,0.2),d4r=mulberry(2024),d4kind='ring';
+var d4data,d4P,d4E,d4M,d4V,d4G,d4step=0,d4hist=[],d4acc=0,d4accN=0,d4running=false,d4smp=null,d4hold=0,d4once=false,d4raf=null;
+function d4mkData(kind){var n=2000,D=new Float32Array(n*2),r=mulberry(77);
+  for(var i=0;i<n;i++){var x,y;
+    if(kind==='ring'){var k=Math.floor(r()*8),a=k*Math.PI/4;x=1.6*Math.cos(a)+0.09*gauss(r);y=1.6*Math.sin(a)+0.09*gauss(r);}
+    else if(kind==='moons'){var u=Math.PI*r();if(r()<0.5){x=Math.cos(u)-0.5;y=Math.sin(u)-0.25;}else{x=0.5-Math.cos(u);y=0.25-Math.sin(u);}x=x*1.25+0.07*gauss(r);y=y*1.25+0.07*gauss(r);}
+    else{var q=Math.sqrt(r())*3.2*Math.PI+0.8,rad=q/(3.2*Math.PI+0.8)*1.9;x=rad*Math.cos(q)+0.035*gauss(r);y=rad*Math.sin(q)+0.035*gauss(r);}
+    D[i*2]=x;D[i*2+1]=y;}
+  return D;}
+function d4mkNet(zero){var P={W:[],b:[]};for(var l=0;l<4;l++){var ni=NN.sz[l],no=NN.sz[l+1],W=new Float32Array(ni*no);
+  if(!zero){var sc=l===3?0.01:Math.sqrt(1/ni);for(var i=0;i<W.length;i++)W[i]=gauss(d4r)*sc;}
+  P.W.push(W);P.b.push(new Float32Array(no));}return P;}
+function d4cache(B){var C={z:[],a:[],B:B};for(var l=0;l<4;l++){C.z.push(new Float32Array(B*NN.sz[l+1]));C.a.push(new Float32Array(B*NN.sz[l+1]));}
+  C.X=new Float32Array(B*NN.sz[0]);C.d=[];for(l=0;l<5;l++)C.d.push(new Float32Array(B*NN.sz[l]));return C;}
+var d4C=d4cache(NN.B),d4CS=d4cache(NN.N),d4emb=(function(){var E=new Float32Array((NN.T+1)*16);
+  for(var t=0;t<=NN.T;t++)for(var k=0;k<8;k++){var w=Math.pow(100,-k/7);E[t*16+2*k]=Math.sin(t*w);E[t*16+2*k+1]=Math.cos(t*w);}return E;})();
+function d4enc(X,b,x,y,t){var ni=NN.sz[0],o=b*ni,F=NN.F,p=o+2;X[o]=x;X[o+1]=y;
+  for(var f=0;f<F.length;f++){X[p++]=Math.sin(F[f]*x);X[p++]=Math.cos(F[f]*x);X[p++]=Math.sin(F[f]*y);X[p++]=Math.cos(F[f]*y);}
+  for(var k=0;k<16;k++)X[p++]=d4emb[t*16+k];}
+function d4fwd(P,C,B){var a=C.X;
+  for(var l=0;l<4;l++){var ni=NN.sz[l],no=NN.sz[l+1],W=P.W[l],bb=P.b[l],z=C.z[l],o=C.a[l];
+    for(var b=0;b<B;b++){var ao=b*ni,zo=b*no;
+      for(var j=0;j<no;j++){var s=bb[j],wo=j*ni;for(var i=0;i<ni;i++)s+=W[wo+i]*a[ao+i];z[zo+j]=s;
+        if(l<3){o[zo+j]=s/(1+Math.exp(-s));}}}
+    a=o;}
+  return C.z[3];}
+function d4back(P,G,C,B){
+  for(var l=3;l>=0;l--){var ni=NN.sz[l],no=NN.sz[l+1],W=P.W[l],gW=G.W[l],gb=G.b[l],d=C.d[l+1],ain=l?C.a[l-1]:C.X,dp=C.d[l];
+    gW.fill(0);gb.fill(0);if(l)dp.fill(0);
+    for(var b=0;b<B;b++){var ao=b*ni,zo=b*no;
+      for(var j=0;j<no;j++){var g=d[zo+j];if(g===0)continue;gb[j]+=g;var wo=j*ni;
+        for(var i=0;i<ni;i++){gW[wo+i]+=g*ain[ao+i];}
+        if(l)for(i=0;i<ni;i++)dp[ao+i]+=W[wo+i]*g;}}
+    if(l){var zp=C.z[l-1];for(var q=0;q<B*ni;q++){var sg=1/(1+Math.exp(-zp[q]));dp[q]*=sg*(1+zp[q]*(1-sg));}}}
+}
+function d4init(){d4P=d4mkNet(false);d4E={W:d4P.W.map(function(w){return w.slice();}),b:d4P.b.map(function(w){return w.slice();})};
+  d4M=d4mkNet(true);d4V=d4mkNet(true);d4G=d4mkNet(true);d4step=0;d4hist=[];d4acc=0;d4accN=0;d4smp=null;}
+function d4train(){
+  var B=NN.B,X=d4C.X,eps=d4C.d[4],tgt=d4C.tg||(d4C.tg=new Float32Array(B*2)),n=d4data.length/2;
+  for(var b=0;b<B;b++){var i=Math.floor(d4r()*n),t=1+Math.floor(d4r()*NN.T),sa=Math.sqrt(SN.ab[t]),sn=Math.sqrt(1-SN.ab[t]);
+    var e0=gauss(d4r),e1=gauss(d4r);tgt[b*2]=e0;tgt[b*2+1]=e1;
+    d4enc(X,b,sa*d4data[i*2]+sn*e0,sa*d4data[i*2+1]+sn*e1,t);}
+  var out=d4fwd(d4P,d4C,B),loss=0;
+  for(var q=0;q<B*2;q++){var df=out[q]-tgt[q];loss+=df*df;eps[q]=df/B;}
+  loss/=B*2;
+  d4back(d4P,d4G,d4C,B);d4step++;
+  var lr=NN.lr*Math.min(1,d4step/100)/(1+d4step/(NN.dec||1e9)),b1=0.9,b2=0.999,c1=1-Math.pow(b1,d4step),c2=1-Math.pow(b2,d4step),em=Math.min(NN.ema,(1+d4step)/(10+d4step));
+  ['W','b'].forEach(function(key){for(var l=0;l<4;l++){var p=d4P[key][l],g=d4G[key][l],m=d4M[key][l],v=d4V[key][l],e=d4E[key][l];
+    for(var i=0;i<p.length;i++){var gi=g[i];m[i]=b1*m[i]+(1-b1)*gi;v[i]=b2*v[i]+(1-b2)*gi*gi;
+      p[i]-=lr*(m[i]/c1)/(Math.sqrt(v[i]/c2)+1e-8);e[i]=em*e[i]+(1-em)*p[i];}}});
+  d4acc+=loss;d4accN++;if(d4accN>=25){d4hist.push([d4step,d4acc/d4accN]);d4acc=0;d4accN=0;}
+  return loss;}
+function d4newSample(){var x=new Float32Array(NN.N*2);for(var i=0;i<x.length;i++)x[i]=gauss(d4r);d4smp={x:x,t:NN.T};}
+function d4sampStep(){var S=d4smp,t=S.t,N=NN.N,X=d4CS.X;if(t<1)return;
+  for(var b=0;b<N;b++)d4enc(X,b,S.x[b*2],S.x[b*2+1],t);
+  var out=d4fwd(d4E,d4CS,N),c=SN.be[t]/Math.sqrt(1-SN.ab[t]),ia=1/Math.sqrt(SN.al[t]),sg=t>1?Math.sqrt(SN.be[t]):0;
+  for(var q=0;q<N*2;q++)S.x[q]=ia*(S.x[q]-c*out[q])+sg*gauss(d4r);
+  S.t=t-1;}
+function d4draw(){
+  var xs=d4hist.map(function(p){return p[0];}),ys=d4hist.map(function(p){return p[1];}),x1=Math.max(500,d4step);
+  plot($('#cv4a'),{x0:0,x1:x1,y0:0.1,y1:1.5,log:true,yt:[0.1,0.2,0.5,1],xt:[0,Math.round(x1/2),x1],xl:'스텝',series:[{x:xs,y:ys,col:'--s1'}]});
+  var s=setup($('#cv4b')),c=s.c,w=s.w,h=s.h,sz=Math.min(w,h)-8,cx=w/2,cy=h/2,R=2.6,X=function(x){return cx+x/R*sz/2;},Y=function(y){return cy-y/R*sz/2;};
+  c.strokeStyle=css('--grid');c.lineWidth=1;c.strokeRect(cx-sz/2+0.5,cy-sz/2+0.5,sz-1,sz-1);
+  c.save();c.beginPath();c.rect(cx-sz/2,cy-sz/2,sz,sz);c.clip();
+  c.fillStyle=css('--muted');c.globalAlpha=0.35;for(var i=0;i<700;i++)c.fillRect(X(d4data[i*2])-1,Y(d4data[i*2+1])-1,2,2);
+  if(d4smp){c.globalAlpha=0.85;c.fillStyle=css('--s2');for(i=0;i<NN.N;i++)c.fillRect(X(d4smp.x[i*2])-1.25,Y(d4smp.x[i*2+1])-1.25,2.5,2.5);}
+  c.restore();c.globalAlpha=1;
+  $('#d4step').textContent=d4step;$('#d4loss').textContent=d4hist.length?fmt(d4hist[d4hist.length-1][1],3):'—';
+  $('#d4t').textContent=d4smp?String(d4smp.t):'—';
+  $('#d4cap').textContent=d4smp?(d4smp.t>0?'샘플링 중 — t = '+d4smp.t:'샘플 (스텝 '+d4step+'의 가중치)'):'샘플 (학습 전)';
+}
+function d4loop(){
+  var t0=performance.now();
+  if(d4running){do{d4train();}while(performance.now()-t0<11);}
+  if(d4running||d4once){
+    if(!d4smp)d4newSample();
+    if(d4smp.t>0){d4sampStep();if(d4smp.t>0)d4sampStep();if(d4smp.t===0)d4hold=45;}
+    else if(d4hold>0){d4hold--;}
+    else if(d4running){d4newSample();}
+    else d4once=false;
+  }
+  d4draw();
+  d4raf=(d4running||d4once)?requestAnimationFrame(d4loop):null;
+}
+function d4kick(){if(!d4raf)d4raf=requestAnimationFrame(d4loop);}
+$('#d4run').addEventListener('click',function(){d4running=!d4running;this.textContent=d4running?'■ 학습 정지':'▶ 학습 계속';d4kick();});
+$('#d4samp').addEventListener('click',function(){d4newSample();d4once=true;d4kick();});
+$('#d4reset').addEventListener('click',function(){d4init();if(!d4running)$('#d4run').textContent='▶ 학습 시작';d4draw();});
+seg('d4seg',function(v){d4kind=v;d4data=d4mkData(v);d4init();if(!d4running)$('#d4run').textContent='▶ 학습 시작';d4draw();});
+
+/* ══════ 퀴즈 ══════ */
+var QZ=[
+ {q:'DDPM에서 학습되는 것은 어느 쪽인가?',o:['순방향 과정 q(x_t | x_{t−1})의 β_t','역방향 과정 p_θ(x_{t−1} | x_t)의 평균을 정하는 ε_θ','순방향과 역방향 모두','판별자'],a:1,e:'순방향은 고정된 스케줄을 따르는 가우시안 사슬이고, 학습하는 것은 역방향의 ε_θ뿐입니다. 분산도 고정했습니다.'},
+ {q:'식 (4) q(x_t | x_0) = N(√ᾱ_t x_0, (1−ᾱ_t)I) 가 학습에서 하는 역할은?',o:['역방향 샘플링을 한 번에 끝내 준다','사슬을 t번 돌리지 않고 아무 t의 x_t를 한 번에 만들 수 있게 한다','분산을 학습할 수 있게 한다','T를 줄여 준다'],a:1,e:'알고리즘 1이 매 스텝 t를 무작위로 골라 x_t를 바로 만들 수 있는 것은 이 닫힌 꼴 덕분입니다. 샘플링은 여전히 T걸음입니다.'},
+ {q:'순방향에서 x_{t−1}에 √(1−β_t)를 곱하는 이유는?',o:['계산을 빠르게 하려고','분산이 커지지 않게 해서 끝이 N(0, I)에 도달하도록','노이즈를 더 크게 하려고','신경망 입력을 0~1로 맞추려고'],a:1,e:'분산 (1−β_t)·1 + β_t = 1로 유지됩니다. 신호가 줄어든 만큼만 노이즈가 들어옵니다.'},
+ {q:'q(x_{t−1} | x_t)는 계산할 수 없는데 q(x_{t−1} | x_t, x_0)는 닫힌 꼴인 이유는?',o:['x_0를 알면 베이즈 정리의 세 항이 모두 가우시안이어서','x_0가 항상 0이어서','신경망이 x_0를 출력해서','T가 커서'],a:0,e:'q(x_t|x_{t−1}), q(x_{t−1}|x_0), q(x_t|x_0)가 모두 가우시안이라 사후분포도 가우시안(식 6·7)입니다. x_0 없이 계산하려면 데이터 분포 전체가 필요합니다.'},
+ {q:'L_simple은 변분 하한(식 12)에 비해 어떤 t를 덜 중요하게 다루는가?',o:['큰 t (노이즈가 많은 구간)','작은 t (노이즈가 거의 없는 구간)','모든 t를 똑같이 줄인다','t = T만'],a:1,e:'식 (12)의 가중치는 작은 t에서 큽니다(t=1에서 약 0.5, t=1000에서 약 0.01). 이를 모두 1로 두면 작은 t의 상대 비중이 내려갑니다.'},
+ {q:'데모 5에서 학습 손실이 0에 가까워지지 않는 이유는?',o:['학습률이 너무 커서','신경망이 작아서','노이즈가 많은 x_t에서는 섞인 ε를 정확히 알 수 없고 조건부 평균이 최선이라서','EMA 때문에'],a:2,e:'최적 예측은 E[ε | x_t]이고, 그때의 오차는 ε의 조건부 분산만큼 남습니다. 신경망을 아무리 키워도 0이 되지 않습니다.'},
+ {q:'알고리즘 2에서 σ_t z 항을 빼고(σ_t = 0) 평균만 따라가면?',o:['결과가 같다','샘플이 봉우리 한가운데로 몰려 분포의 폭이 사라진다','샘플이 발산한다','샘플링이 빨라진다'],a:1,e:'데모 4에서 확인할 수 있습니다. 새 노이즈는 분포의 폭을 유지합니다. 노이즈 없는 올바른 샘플러는 갱신식이 다른 DDIM입니다.'},
+ {q:'표 2에서 FID를 13.51에서 3.17로 바꾼 것은?',o:['분산을 학습한 것','평균 대신 노이즈를 예측한 것만으로','ε 예측에 가중치 없는 손실 L_simple을 쓴 것','T를 4000으로 늘린 것'],a:2,e:'변분 하한 L을 쓰면 μ̃ 예측(13.22)과 ε 예측(13.51)이 비슷합니다. ε 예측 + L_simple 조합에서 3.17이 나왔습니다.'}
+];
+(function(){var box=$('#quiz'),score=0,done=0;
+  QZ.forEach(function(it,i){var d=document.createElement('div');d.className='q';
+    d.innerHTML='<h4>Q'+(i+1)+'. '+it.q+'</h4>'+it.o.map(function(o,j){return '<label class="opt"><input type="radio" name="q'+i+'" value="'+j+'"><span>'+o+'</span></label>';}).join('')+'<div class="expl"></div>';
+    box.appendChild(d);
+    d.querySelectorAll('input').forEach(function(inp){inp.addEventListener('change',function(){
+      if(d.dataset.done)return;d.dataset.done=1;done++;
+      var j=+inp.value,ok=j===it.a;if(ok)score++;
+      d.querySelectorAll('.opt').forEach(function(l,x){if(x===it.a)l.classList.add('correct');else if(x===j)l.classList.add('wrong');});
+      var ex=d.querySelector('.expl');ex.textContent=(ok?'정답! ':'오답. ')+it.e;ex.classList.add('show');if(!ok)ex.classList.add('bad');
+      $('#quizScore').textContent=done+'문제 중 '+score+'개 정답'+(done===QZ.length?' — 끝!':'');
+    });});
+  });
+})();
+
+/* ══════ 테마·초기화 ══════ */
+function drawAll(){d5draw();d1draw();d2draw();if(d3st){var p=d3st.p;d3run();d3st.p=p;d3draw();}d4draw();}
+var tbtn=$('#themeBtn');
+if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.setAttribute('data-theme','dark');
+function syncBtn(){tbtn.textContent=document.documentElement.getAttribute('data-theme')==='dark'?'◑ 라이트':'◐ 다크';}
+tbtn.addEventListener('click',function(){var d=document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme',d?'light':'dark');cssCache={};syncBtn();drawAll();});
+syncBtn();cssCache={};
+d1noise();d4data=d4mkData('ring');d4init();d3run();d3st.p=1;drawAll();
+var rz,lastW=document.documentElement.clientWidth;
+window.addEventListener('resize',function(){clearTimeout(rz);rz=setTimeout(function(){
+  var w=document.documentElement.clientWidth;if(w===lastW)return;lastW=w;drawAll();},120);});
+</script>
+</body>
+</html>
